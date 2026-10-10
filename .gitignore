@@ -1,0 +1,11 @@
+# Ne JAMAIS publier : codes, PDF privés, clés, sauvegardes
+PRIVE_NE_PAS_PUBLIER/
+*codes*PRIVE*.txt
+*private*codes*.txt
+*.env
+.env*
+*.pdf
+*.sql.bak
+.DS_Store
+Thumbs.db
+node_modules/

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#101327">
+  <meta name="description" content="English Arena : cours d'anglais pour la Terminale, simulations orales, quiz et révisions hors ligne.">
+  <title>English Arena · Terminale English Lab</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/boot.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/vendor/supabase.js" defer></script>
+  <script src="js/data.js"></script>
+  <script src="js/data-extra.js"></script>
+  <script src="js/cloud.js" defer></script>
+  <script src="js/voice.js" defer></script>
+  <script src="js/badges.js" defer></script>
+  <script src="js/mascot.js" defer></script>
+  <script src="js/simulation.js" defer></script>
+  <script src="js/games.js" defer></script>
+  <script src="js/duel.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#home" aria-label="English Arena accueil"><span class="brand-mark">EA<span>+</span></span><span><strong>ENGLISH<br>ARENA</strong><small>TERMINALE ENGLISH LAB</small></span></a>
+      <div class="side-label">TON ESPACE</div>
+      <nav class="main-nav" aria-label="Navigation principale">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">◈</span>Vue d'ensemble</button>
+        <button class="nav-item" data-view="courses"><span class="nav-icon">▤</span>Parcours & cours</button>
+        <button class="nav-item" data-view="speak"><span class="nav-icon">◖</span>Speaking Lab <span class="nav-pill">NEW</span></button>
+        <button class="nav-item" data-view="vocab"><span class="nav-icon">Aa</span>Vocabulaire</button>
+        <button class="nav-item" data-view="practice"><span class="nav-icon">✳</span>Quiz & examens</button>
+        <button class="nav-item" data-view="community"><span class="nav-icon">☺</span>Classe & discussion</button>
+        <button class="nav-item" data-view="library"><span class="nav-icon">▣</span>Bibliothèque</button>
+      </nav>
+      <div class="side-spacer"></div>
+      <div class="streak-card"><div class="streak-top"><span>✦ TON ÉLAN</span><span id="sidebarStreak">0 jours</span></div><div class="streak-meter"><i id="streakFill"></i></div><p>Un peu d'anglais chaque jour vaut mieux qu'une longue séance de temps en temps.</p></div>
+      <button class="nav-item" data-view="profile"><span class="nav-icon">⚙</span>Mon profil & outils</button>
+      <div class="sidebar-foot"><span class="status-dot"></span><span id="connectionLabel">Mode hors ligne prêt</span></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="menuToggle" aria-label="Ouvrir le menu">☰</button>
+        <div class="crumb"><span>ESPACE ÉLÈVE</span><b>/</b><strong id="currentPageLabel">Vue d'ensemble</strong></div>
+        <div class="top-actions"><span class="offline-chip"><i></i><span id="onlineText">LOCAL-FIRST</span></span><button class="install-button" id="installButton" hidden>＋ Installer</button><button class="avatar-button" id="profileShortcut" aria-label="Ouvrir mon profil"><span id="topAvatar">?</span></button></div>
+      </header>
+      <div class="view-wrap" id="viewContainer" tabindex="-1"></div>
+      <footer class="app-footer"><span>ENGLISH ARENA <span class="muted">· Apprendre, parler, progresser.</span></span><span id="footerMode">Tes progrès restent sur cet appareil en mode local.</span></footer>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Navigation mobile">
+    <button data-view="home" class="active"><span>◈</span>Accueil</button><button data-view="courses"><span>▤</span>Cours</button><button data-view="speak"><span>◖</span>Parler</button><button data-view="practice"><span>✳</span>Quiz</button><button data-view="community"><span>☺</span>Classe</button><button data-view="profile"><span>☻</span>Profil</button>
+  </nav>
+  <div class="modal-backdrop" id="modalBackdrop" hidden><section class="modal" id="modalPanel" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button class="modal-close" id="modalClose" aria-label="Fermer">×</button><div id="modalContent"></div></section></div>
+  <div class="onboarding-backdrop" id="onboardingBackdrop" hidden><section class="onboarding-panel"><div class="onboarding-brand"><span class="brand-mark">EA<span>+</span></span><div><b>ENGLISH ARENA</b><small>TON LABORATOIRE D'ANGLAIS</small></div></div><div class="onboarding-kicker">TA PROCHAINE ÉTAPE COMMENCE ICI</div><h1>English is a skill.<br><em>Train it.</em></h1><p class="onboarding-copy">Un espace pour parler avec plus de confiance, maîtriser le programme de Terminale et progresser avec ta classe — même quand la connexion est faible.</p><div class="onboarding-features"><span>✓ 56 jours de cours</span><span>✓ Simulations sans IA payante</span><span>✓ Révisions sur cet appareil</span></div><div id="onboardingFormWrap"></div><small class="privacy-note">Mode local : les données de profil restent dans le navigateur. Les accès individuels partagés entre appareils nécessitent le backend optionnel décrit dans le guide.</small></section></div>
+  
+</body>
+</html>

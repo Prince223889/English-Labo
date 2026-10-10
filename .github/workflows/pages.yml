@@ -1,0 +1,42 @@
+name: Deploy English Arena to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Assemble the public site (only what the browser needs)
+        run: |
+          mkdir _site
+          cp -r index.html admin.html sw.js manifest.webmanifest css js assets _site/
+          # Client Supabase épinglé, publié avec le site (aucune dépendance à un CDN au runtime)
+          set -euo pipefail
+          mkdir -p _site/js/vendor
+          TGZ=$(npm pack @supabase/supabase-js@2.49.4 --silent | tail -1)
+          tar -xzf "$TGZ" package/dist/umd/supabase.js
+          cp package/dist/umd/supabase.js _site/js/vendor/supabase.js
+          test -s _site/js/vendor/supabase.js
+          sed -i "s/english-arena-shell-v1/english-arena-shell-${GITHUB_SHA}/" _site/sw.js
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
