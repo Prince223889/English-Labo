@@ -7,6 +7,6 @@ window.EA_CONFIG = {
   appName: 'English Arena',
   className: 'Terminale · English Lab',
   mode: 'supabase', // 'local' pour tester sans internet
-  supabaseUrl: 'https://aandwgnbkfrtrfqymlfc.supabase.co',
-  supabaseAnonKey: 'sb_publishable_0hsNPtLB0MjuJ3qhZvFkyw_hqGrcw07'
+  supabaseUrl: 'https://ckflhvtdaaxmbfrfekyb.supabase.co',
+  supabaseAnonKey: 'sb_publishable_WZ9VEXOVKWnlLgFJ6WkxBQ_zy4XEhDF'
 };
