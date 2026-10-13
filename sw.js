@@ -4,7 +4,7 @@ const PDF_CACHE = 'english-arena-documents-v1';
 const BASE_URL = new URL('./', self.registration.scope);
 const SHELL = [
   './', './index.html', './css/styles.css', './js/config.js', './js/data.js',
-  './js/boot.js', './js/cloud.js', './js/voice.js', './js/data-extra.js', './js/badges.js', './js/mascot.js', './js/simulation.js', './js/games.js', './js/duel.js', './js/app.js', './manifest.webmanifest', './assets/icons/icon.svg',
+  './js/boot.js', './js/cloud.js', './js/voice.js', './js/data-extra.js', './js/data-sim-more.js', './js/badges.js', './js/mascot.js', './js/simulation.js', './js/games.js', './js/duel.js', './js/app.js', './manifest.webmanifest', './assets/icons/icon.svg',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png'
 ];
 self.addEventListener('install', event => {

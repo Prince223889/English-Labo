@@ -5,7 +5,8 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const context = { window: {} };
-vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data.js'), 'utf8'), context, { filename: 'js/data.js' });
+vm.createContext(context);
+for (const f of ['js/data.js','js/data-extra.js','js/data-sim-more.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), context, { filename: f });
 const data = context.window.EA_DATA;
 
 assert.ok(data, 'EA_DATA must load');
@@ -24,7 +25,7 @@ for (const q of data.quizzes) {
   assert.ok(q.question && q.explanation && Array.isArray(q.options), 'quiz needs question, options and feedback');
   assert.ok(q.options.length >= 2 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length, 'quiz answer index must be valid');
 }
-assert.ok(data.simulations.length >= 8, 'speaking lab should contain at least 8 simulations');
+assert.ok(data.simulations.length >= 48, 'speaking lab should contain at least 8 simulations');
 assert.ok(data.extraCourses.length >= 18, 'there should be at least 18 extra interactive workshops');
 for (const c of data.extraCourses) assert.ok(c.id && c.track && c.title && c.objective && c.explanation && c.phrases.length >= 3 && c.challenge && c.model, 'mini-course needs objective, explanation, phrases, challenge and model answer');
 for (const s of data.simulations) assert.ok(s.id && s.title && s.opening && s.hints.length && s.sample && s.followups.length, 'simulation needs usable dialogue materials');
