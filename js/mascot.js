@@ -30,7 +30,7 @@
     listen: ['Je t’écoute… parle clairement 🎧'], noisy: ['Il y a du bruit autour 🙉 Va dans un coin calme ou rapproche-toi du micro.'], sim: ['Bien joué ! Tu as pratiqué à l’oral 🎤'],
     streak: ['{n} jours de suite ! Quelle régularité 🔥'], win: ['Victoire ! Tu es le champion de la classe 🏆'], duel: ['Duel lancé ! Que le meilleur gagne ⚔️']
   };
-  let root, svgBox, bubble, bubbleText, panel, cfg = { name: 'Kiki', color: 'green', muted: false }, state = { xp: 0, streak: 0 }, mood = 'idle', moodTimer, bubbleTimer, idleTimer, lastBubble = 0, shownViews = {}, stageNow = 0, ready = false;
+  let root, svgBox, bubble, bubbleText, panel, cfg = { name: 'Kiki', color: 'green', muted: false, acc: 'none' }, state = { xp: 0, streak: 0 }, mood = 'idle', moodTimer, bubbleTimer, idleTimer, lastBubble = 0, shownViews = {}, stageNow = 0, ready = false;
   const rnd = a => a[Math.floor(Math.random() * a.length)];
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const stageOf = xp => { let s = 0; STAGES.forEach((st, i) => { if (xp >= st[0]) s = i; }); return s; };
@@ -44,6 +44,7 @@
       stage >= 3 ? '<g class="k-glasses"><rect x="46" y="37" width="22" height="14" rx="6" fill="#111327" opacity=".82"/><rect x="72" y="37" width="22" height="14" rx="6" fill="#111327" opacity=".82"/><path d="M68 43 h4" stroke="#111327" stroke-width="3"/><path d="M50 40 l6 0" stroke="#fff" stroke-width="1.5" opacity=".6"/></g>' : '',
       stage >= 4 ? '<path d="M48 22 L52 6 L61 16 L70 2 L79 16 L88 6 L92 22Z" fill="#ffd166" stroke="#e8a317" stroke-width="2"/><circle cx="70" cy="9" r="2.5" fill="#ff6b8a"/>' : ''
     ].join('');
+    const extra = ({ cap: '<path d="M44 30 Q70 6 96 30 Z" fill="#ff6b8a"/><rect x="40" y="28" width="60" height="6" rx="3" fill="#c93a5e"/><rect x="88" y="26" width="26" height="6" rx="3" fill="#c93a5e"/>', bow: '<path d="M70 108 l-16 -9 v18z M70 108 l16 -9 v18z" fill="#ff6b8a"/><circle cx="70" cy="108" r="4" fill="#c93a5e"/>', shades: '<rect x="44" y="36" width="24" height="15" rx="6" fill="#0d0f1f"/><rect x="72" y="36" width="24" height="15" rx="6" fill="#0d0f1f"/><path d="M68 42 h4" stroke="#0d0f1f" stroke-width="3"/>', crown: '<path d="M48 24 L52 6 L61 16 L70 2 L79 16 L88 6 L92 24Z" fill="#ffd166" stroke="#e8a317" stroke-width="2"/>', scarf: '<path d="M48 76 Q70 90 92 76 L90 88 Q70 100 50 88Z" fill="#ff6b8a"/><path d="M84 86 l8 22 l-9 -2z" fill="#c93a5e"/>' })[cfg.acc] || '';
     return `<svg class="kiki mood-${m}" viewBox="0 0 140 150" role="img" aria-label="Kiki, la mascotte" style="--k-main:${c[0]};--k-dark:${c[1]};--k-light:${c[2]}">
 <g class="k-all"><g class="k-scale" style="transform:scale(${STAGES[stage][2]});transform-origin:70px 140px">
 <path d="M62 116 Q48 148 66 146 Q72 132 72 116Z" fill="#ff8fb1"/><path d="M70 116 Q76 152 92 142 Q86 130 80 116Z" fill="#79d9fa"/>
@@ -60,7 +61,7 @@
 <circle cx="46" cy="58" r="5" fill="#ff8fa3" opacity=".5"/><circle cx="94" cy="58" r="5" fill="#ff8fa3" opacity=".5"/>
 <path class="k-mouth" d="M64 62 Q70 77 76 62Z" fill="#c2412f"/>
 <path class="k-beak" d="M61 53 Q70 44 79 53 Q77 66 70 71 Q63 66 61 53Z" fill="#ffa94d"/><path d="M64 57 Q70 53 76 57" stroke="#e8892c" stroke-width="1.6" fill="none"/>
-${acc}</g></g></g>
+${acc}${extra}</g></g></g>
 <g class="k-fx"><text class="k-z" x="104" y="30" font-size="16" fill="#9ba4c3">z</text><text class="k-z k-z2" x="116" y="16" font-size="12" fill="#9ba4c3">z</text><text class="k-q" x="102" y="28" font-size="22" fill="#ffd166">?</text>
 <path class="k-wave" d="M112 52 q8 8 0 16 M120 46 q13 14 0 28" stroke="#79d9fa" stroke-width="3" fill="none" stroke-linecap="round"/>
 <g class="k-confetti"><circle cx="20" cy="30" r="3" fill="#ff8fb1"/><circle cx="118" cy="26" r="3" fill="#ffd166"/><rect x="28" y="12" width="5" height="5" fill="#79d9fa" transform="rotate(30 30 14)"/><rect x="108" y="10" width="5" height="5" fill="#8cf0ce" transform="rotate(-20 110 12)"/><circle cx="130" cy="60" r="2.5" fill="#ffd166"/><circle cx="8" cy="64" r="2.5" fill="#79d9fa"/></g></g></svg>`;
@@ -81,10 +82,9 @@ ${acc}</g></g></g>
     bubbleText.textContent = text; bubble.hidden = false; bubble.classList.remove('pop'); void bubble.offsetWidth; bubble.classList.add('pop');
     clearTimeout(bubbleTimer); if (ms !== 0) bubbleTimer = setTimeout(() => { bubble.hidden = true; }, ms || 6500);
   }
-  function speakEn(text) {
-    if (!('speechSynthesis' in window)) return;
-    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; u.rate = .9; u.onstart = () => setMood('talk'); u.onend = () => setMood('idle'); speechSynthesis.speak(u); } catch (_) {}
-  }
+  function speakEn(text) { if (window.EASpeech) EASpeech.say(text, { onstart: () => setMood('talk'), onend: () => setMood('idle') }); }
+  function speakFr(text) { if (window.EASpeech) EASpeech.sayFr(text, { onstart: () => setMood('talk'), onend: () => setMood('idle') }); }
+  function lip(on) { const el = svgBox && svgBox.querySelector('svg'); if (el) el.classList.toggle('lip', !!on); }
   const phraseOfDay = () => { const d = new Date(); return PHRASES[Math.floor(d / 864e5) % PHRASES.length]; };
 
   function openPanel() {
@@ -93,11 +93,11 @@ ${acc}</g></g></g>
     panel.innerHTML = `<button class="kiki-x" data-k="close" aria-label="Fermer">×</button><div class="kiki-title"><b>${esc(cfg.name)}</b> · ${stg[1]}</div>
       <div class="progress-line"><span style="width:${pct}%"></span></div><small>${nxt ? `${state.xp} / ${nxt[0]} XP pour devenir « ${nxt[1]} »` : 'Niveau maximum : Légende 👑'}</small>
       <div class="kiki-phrase"><small>PHRASE DU JOUR</small><strong>${esc(p[0])}</strong><span>${esc(p[1])}</span><button class="ghost-button" data-k="say">🔊 Répète avec moi</button></div>
-      <div class="button-row"><button class="ghost-button" data-k="custom">✨ Personnaliser</button><button class="ghost-button" data-k="mute">${cfg.muted ? '🔔 Réactiver mes messages' : '🔕 Me faire taire'}</button></div><div id="kikiCustom"></div>`;
+      <div class="button-row"><button class="primary-button" data-k="tour">🦜 Visite guidée</button><button class="secondary-button" data-k="explain">❓ Explique-moi les boutons</button></div><div class="button-row"><button class="ghost-button" data-k="custom">✨ Personnaliser</button><button class="ghost-button" data-k="mute">${cfg.muted ? '🔔 Réactiver mes messages' : '🔕 Me faire taire'}</button></div><div id="kikiCustom"></div>`;
     panel.hidden = false;
   }
   function customForm() {
-    document.getElementById('kikiCustom').innerHTML = `<div class="kiki-custom"><label class="field-label" for="kikiName">Son prénom</label><input class="form-field" id="kikiName" maxlength="14" value="${esc(cfg.name)}"><div class="field-label" style="margin-top:8px">Sa couleur</div><div class="kiki-colors">${Object.keys(COLORS).map(k => `<button data-k="color" data-c="${k}" class="${cfg.color === k ? 'on' : ''}" style="background:${COLORS[k][0]}" aria-label="${k}"></button>`).join('')}</div><button class="primary-button" data-k="save" style="margin-top:10px;width:100%">Enregistrer</button></div>`;
+    document.getElementById('kikiCustom').innerHTML = `<div class="kiki-custom"><label class="field-label" for="kikiName">Son prénom</label><input class="form-field" id="kikiName" maxlength="14" value="${esc(cfg.name)}"><div class="field-label" style="margin-top:8px">Sa couleur</div><div class="kiki-colors">${Object.keys(COLORS).map(k => `<button data-k="color" data-c="${k}" class="${cfg.color === k ? 'on' : ''}" style="background:${COLORS[k][0]}" aria-label="${k}"></button>`).join('')}</div><div class="field-label" style="margin-top:8px">Accessoire</div><div class="hint-list">${[['none', 'Aucun'], ['cap', '🧢 Casquette'], ['bow', '🎀 Nœud'], ['shades', '🕶️ Lunettes'], ['crown', '👑 Couronne'], ['scarf', '🧣 Écharpe']].map(([k, l]) => `<button class="hint-chip ${cfg.acc === k ? 'on' : ''}" data-k="acc" data-c="${k}">${l}</button>`).join('')}</div><button class="primary-button" data-k="save" style="margin-top:10px;width:100%">Enregistrer</button></div>`;
   }
   function persist() { try { const p = window.EAApp.getProgress(); if (p) { p.mascot = Object.assign({}, cfg); window.EAApp.saveNow(); } } catch (_) {} }
 
@@ -107,6 +107,9 @@ ${acc}</g></g></g>
     else if (k === 'say') { speakEn(phraseOfDay()[0]); }
     else if (k === 'mute') { cfg.muted = !cfg.muted; persist(); openPanel(); }
     else if (k === 'custom') customForm();
+    else if (k === 'acc') { cfg.acc = b.dataset.c; render(); customForm(); }
+    else if (k === 'tour') { panel.hidden = true; if (window.EATour) EATour.start(); }
+    else if (k === 'explain') { panel.hidden = true; if (window.EATour) EATour.explain(true); }
     else if (k === 'color') { cfg.color = b.dataset.c; render(); customForm(); }
     else if (k === 'save') { const n = (document.getElementById('kikiName').value || '').trim().slice(0, 14); if (n) cfg.name = n; try { window.EAApp.bump('mascot'); } catch (_) {} persist(); render(); openPanel(); say('Merci ! Je m’appelle ' + cfg.name + ' 💚', 4000, true); setMood('happy', 2500); }
   }
@@ -119,20 +122,68 @@ ${acc}</g></g></g>
     panel = root.querySelector('.kiki-panel'); bubble = root.querySelector('.kiki-bubble'); bubbleText = bubble.querySelector('span'); svgBox = root.querySelector('.kiki-svg');
     bubble.addEventListener('click', () => { bubble.hidden = true; });
     root.querySelector('.kiki-btn').addEventListener('click', () => {
+      if (dragMoved) return;
       if (mood === 'sleep') { setMood('happy', 2500); say('Je suis réveillé(e) ! On s’entraîne ? 🦜', 4500, true); return; }
       if (!panel.hidden) { panel.hidden = true; return; }
       bubble.hidden = true; setMood('happy', 2200); openPanel();
     });
     panel.addEventListener('click', onClick);
     ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (ready && mood !== 'sleep') resetIdle(); }, { passive: true }));
-    render(); ready = true;
+    render(); ready = true; setupMove();
+  }
+
+  // ---------- déplacements, glisser-déposer, yeux qui suivent le curseur ----------
+  const BW = 104, BH = 111; let dragMoved = false, wanderT = null, busyMove = false;
+  function place(left, top, ms) {
+    const w = window.innerWidth, h = window.innerHeight, l = Math.max(4, Math.min(w - BW - 4, left)), t = Math.max(4, Math.min(h - BH - 4, top));
+    root.style.transition = ms ? 'right ' + ms + 'ms ease-in-out, bottom ' + ms + 'ms ease-in-out' : 'none';
+    root.style.right = (w - l - BW) + 'px'; root.style.bottom = (h - t - BH) + 'px'; root.classList.toggle('below', t < 170);
+  }
+  function curPos() { const r = root.querySelector('.kiki-btn').getBoundingClientRect(); return { x: r.left, y: r.top }; }
+  /** Fait marcher Kiki jusqu'à un élément (ou des coordonnées). Retourne une promesse résolue à l'arrivée. */
+  function moveTo(target, opt) {
+    opt = opt || {}; if (!ready || root.hidden) return Promise.resolve();
+    let x, y;
+    if (target && target.getBoundingClientRect) {
+      const r = target.getBoundingClientRect(), w = window.innerWidth;
+      x = opt.side === 'right' || r.left < BW + 12 ? r.right + 8 : r.left - BW - 6; if (x + BW > w - 4) x = r.left - BW - 6;
+      y = Math.max(4, Math.min(window.innerHeight - BH - 4, r.top + r.height / 2 - BH / 2));
+    } else { x = target.x; y = target.y; }
+    const from = curPos(), dist = Math.hypot(x - from.x, y - from.y), ms = opt.ms || Math.min(1800, 350 + dist * 1.6);
+    busyMove = true; panel.hidden = true;
+    if (svgBox) svgBox.style.transform = x < from.x ? 'scaleX(-1)' : 'none';
+    root.classList.add('walking'); place(x, y, ms);
+    return new Promise(res => setTimeout(() => { root.classList.remove('walking'); if (svgBox) svgBox.style.transform = 'none'; busyMove = false; res(); }, ms + 60));
+  }
+  function home() { root.style.transition = 'right .8s ease, bottom .8s ease'; root.style.right = ''; root.style.bottom = ''; root.classList.remove('below'); }
+  function wander() {
+    clearTimeout(wanderT);
+    wanderT = setTimeout(() => {
+      if (ready && !root.hidden && !busyMove && mood === 'idle' && panel.hidden && !cfg.muted && !document.hidden && !document.documentElement.classList.contains('ea-speaking') && document.getElementById('modalBackdrop') && document.getElementById('modalBackdrop').hidden) {
+        const w = window.innerWidth, h = window.innerHeight; moveTo({ x: 20 + Math.random() * (w - BW - 40), y: h - BH - 20 - Math.random() * 60 }, { ms: 2400 }).then(() => { if (Math.random() < .5) say(rnd(['Je me dégourdis les ailes 🦜', 'Clique sur moi si tu veux de l’aide !', 'Tu as fait ton quiz du jour ?']), 3500); });
+      }
+      wander();
+    }, 45000 + Math.random() * 45000);
+  }
+  function setupMove() {
+    const btn = root.querySelector('.kiki-btn'); let sx, sy, ox, oy, down = false;
+    btn.addEventListener('pointerdown', e => { down = true; dragMoved = false; sx = e.clientX; sy = e.clientY; const p = curPos(); ox = p.x; oy = p.y; try { btn.setPointerCapture(e.pointerId); } catch (_) {} });
+    btn.addEventListener('pointermove', e => { if (!down) return; const dx = e.clientX - sx, dy = e.clientY - sy; if (!dragMoved && Math.hypot(dx, dy) > 8) dragMoved = true; if (dragMoved) { place(ox + dx, oy + dy, 0); root.classList.add('dragging'); } });
+    const up = () => { if (down && dragMoved) { root.classList.remove('dragging'); setMood('happy', 1200); } down = false; setTimeout(() => { dragMoved = false; }, 50); };
+    btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
+    document.addEventListener('pointermove', e => {
+      if (!svgBox || root.hidden) return; const r = btn.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height * .35, dx = Math.max(-1, Math.min(1, (e.clientX - cx) / 300)), dy = Math.max(-1, Math.min(1, (e.clientY - cy) / 300));
+      svgBox.style.setProperty('--ex', (dx * 2.5).toFixed(2) + 'px'); svgBox.style.setProperty('--ey', (dy * 2).toFixed(2) + 'px');
+    }, { passive: true });
+    window.addEventListener('resize', () => { if (root.style.right) { const p = curPos(); place(p.x, p.y, 0); } });
+    wander();
   }
 
   function update(progress) {
     mount();
     if (!progress) { root.hidden = true; return; }
     root.hidden = false;
-    if (progress.mascot) cfg = Object.assign({ name: 'Kiki', color: 'green', muted: false }, progress.mascot);
+    if (progress.mascot) cfg = Object.assign({ name: 'Kiki', color: 'green', muted: false, acc: 'none' }, progress.mascot);
     state = { xp: progress.xp || 0, streak: progress.streak || 0 };
     const ns = stageOf(state.xp);
     let saved = -1; try { saved = Number(localStorage.getItem('ea_kiki_stage')); if (isNaN(saved)) saved = -1; } catch (_) {}
@@ -161,6 +212,6 @@ ${acc}</g></g></g>
       case 'streak': if (d.n >= 2) say(rnd(MSG.streak).replace('{n}', d.n), 6000); break;
     }
   }
-  window.EAMascot = { mount, update, react, html, svg: (m, s) => svg(m || 'idle', s == null ? stageNow : s, cfg.color), speak: speakEn };
+  window.EAMascot = { mount, update, react, html, lip, moveTo, home, say, setMood, speakFr, isReady: () => ready && root && !root.hidden, svg: (m, s) => svg(m || 'idle', s == null ? stageNow : s, cfg.color), speak: speakEn };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
 })();
