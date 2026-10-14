@@ -63,3 +63,29 @@
 .letter-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:12px 0}.letter{min-width:38px;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:800;font-size:18px;text-transform:uppercase}
 .letter:disabled{opacity:.3}.slot{min-width:34px;height:42px;border-bottom:3px solid var(--muted);text-align:center;font-weight:800;font-size:22px;text-transform:uppercase}
 .result-score{font-size:46px;font-weight:900;margin:8px 0}
+/* pouvoirs des badges */
+.badge-power{display:block;margin-top:4px;font-size:10px;font-weight:700;color:var(--cyan)}
+.power-bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.power-btn{border:1px solid var(--line);background:var(--panel3);color:var(--text);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}
+.power-btn small{color:var(--muted);margin-left:4px}.power-btn:disabled{opacity:.4}
+/* Kiki : mouvement, lèvres, yeux */
+.kiki-widget{transition:none}.kiki-widget.below{flex-direction:column-reverse}.kiki-widget.dragging .kiki-btn{cursor:grabbing;touch-action:none}.kiki-btn{touch-action:none;cursor:grab}
+.kiki-svg{transition:transform .2s}
+.kiki .k-pupils{transform:translate(var(--ex,0),var(--ey,0))}
+.kiki.lip .k-mouth{opacity:1;animation:klip .16s ease-in-out infinite alternate;transform-origin:70px 64px}
+@keyframes klip{from{transform:scaleY(.35)}to{transform:scaleY(1.15)}}
+.kiki-widget.walking .kiki .k-all{animation:kwalk .28s ease-in-out infinite}
+@keyframes kwalk{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-7px) rotate(4deg)}}
+.hint-chip.on{border-color:var(--mint);background:#8cf0ce22}
+/* visite guidée */
+.tour-spot{position:fixed;z-index:60;border:3px solid var(--cyan);border-radius:14px;box-shadow:0 0 0 9999px rgba(5,7,16,.62),0 0 26px var(--cyan);pointer-events:none;transition:all .45s ease}
+.tour-card{position:fixed;z-index:62;left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom));width:min(520px,calc(100vw - 24px));background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px 16px;box-shadow:var(--shadow);display:grid;gap:8px}
+.tour-card h3{margin:0}.tour-card p{margin:0}.tour-explain-banner{position:fixed;z-index:61;top:10px;left:50%;transform:translateX(-50%);background:var(--purple2);color:#fff;border-radius:999px;padding:8px 16px;font-weight:700;box-shadow:var(--shadow);display:flex;gap:10px;align-items:center}
+.tour-explain-on [data-action],.tour-explain-on [data-view]{outline:1px dashed #79d9fa88;outline-offset:2px}
+/* Monde : plateau */
+.wboard{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.wsq{position:relative;aspect-ratio:1;border:1px solid var(--line);border-radius:12px;background:var(--panel2);display:grid;place-items:center;font-size:22px}
+.wsq em{position:absolute;left:5px;top:2px;font-size:9px;font-style:normal;color:var(--muted)}.wpawns{position:absolute;bottom:1px;right:3px;font-size:13px;letter-spacing:-2px}
+.wsq-trap{border-color:#ff8e9d66}.wsq-clue{border-color:#79d9fa66}.wsq-boss{border-color:#ffd16699;background:#2a2140}.wsq-powerup{border-color:#8cf0ce66}.wsq-event{border-color:#ffba7866}
+@media(max-width:520px){.wboard{gap:4px}.wsq{font-size:17px;border-radius:9px}}
+.tour-card[hidden],.tour-spot[hidden],.tour-explain-banner[hidden]{display:none}

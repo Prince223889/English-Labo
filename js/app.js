@@ -14,7 +14,6 @@
   let courseSearch = '';
   let vocabIndex = 0;
   let vocabFlipped = false;
-  let quizSession = null;
   let scenarioId = null;
   let scenarioTurn = 0;
   let scenarioHistory = [];
@@ -23,7 +22,6 @@
   let toastTimer = null;
   let classStatsCache = null;
   let classStatsFetched = false;
-  let quizStartTime = 0;
   let simulationMode = 'guided';
   let voiceGuard = { enabled: true, level: 'medium', meter: 0 };
 
@@ -33,6 +31,14 @@
     savedPhrases: [], reminder: { enabled: false, time: '19:00', notificationAsked: false },
     level: 'mixte', totalAnswers: 0, correctAnswers: 0, lastMissionDate: ''
   });
+  // Anciens comptes : on complète toujours avec les valeurs par défaut sans jamais effacer l'existant.
+  function migrateProgress(raw) {
+    const d = defaultProgress(); const p = Object.assign({}, d, raw && typeof raw === 'object' ? raw : {});
+    ['completedDays','completedMiniCourses','completedMissions','knownWords','quizHistory','achievements','simHistory','savedPhrases'].forEach(k => { if (!Array.isArray(p[k])) p[k] = []; });
+    ['reviewWords','stats','games'].forEach(k => { if (!p[k] || typeof p[k] !== 'object' || Array.isArray(p[k])) p[k] = {}; });
+    p.reminder = Object.assign({}, d.reminder, p.reminder || {});
+    p.schema = 2; return p;
+  }
   const getProfiles = () => safeJSON(localStorage.getItem(PROFILE_KEY), []);
   function safeJSON(value, fallback) { try { return value ? JSON.parse(value) : fallback; } catch (_) { return fallback; } }
   function randomId() { return 'ea-' + Array.from(crypto.getRandomValues(new Uint8Array(8))).map(x=>x.toString(16).padStart(2,'0')).join(''); }
@@ -56,7 +62,7 @@
   function isCloudMode() { return window.EACloud && window.EACloud.isEnabled(); }
   const COURSE_PDF='English_for_Terminale_Cours_Complet_56_jours.pdf';
   function getWeekPDF(week) { return `weekly/Semaine_${week}_Jours_${String((week-1)*7+1).padStart(2,'0')}-${String(week*7).padStart(2,'0')}.pdf`; }
-  function getLocalProgress(id) { return safeJSON(localStorage.getItem(PROGRESS_PREFIX+id), defaultProgress()); }
+  function getLocalProgress(id) { return migrateProgress(safeJSON(localStorage.getItem(PROGRESS_PREFIX+id), null)); }
   function storeProfiles(profiles) { localStorage.setItem(PROFILE_KEY, JSON.stringify(profiles)); }
   function storeActiveProfile(p) { profile=p; localStorage.setItem(ACTIVE_KEY,p.id); }
   function saveNow() {
@@ -108,11 +114,11 @@
     $('#footerMode').textContent=profile.mode==='supabase'?'Les progrès se synchronisent quand la connexion est disponible.':'Tes progrès restent sur cet appareil en mode local.';
   }
   function openModal(html) { $('#modalContent').innerHTML=html; $('#modalBackdrop').hidden=false; document.body.style.overflow='hidden'; }
-  function closeModal() { if(window.EAVoice)EAVoice.close(); if(window.EASim)EASim.stop(); if(window.EAGames)EAGames.stop(); if(window.EADuel)EADuel.leave(); $('#modalBackdrop').hidden=true; document.body.style.overflow=''; $('#modalContent').innerHTML=''; }
+  function closeModal() { if(window.EAWorld&&EAWorld.abort)EAWorld.abort(); if(window.EAVoice)EAVoice.close(); if(window.EASim)EASim.stop();if(window.EASpeech){EASpeech.stop();EASpeech.stopListening();} if(window.EAGames)EAGames.stop(); if(window.EADuel)EADuel.leave(); $('#modalBackdrop').hidden=true; document.body.style.overflow=''; $('#modalContent').innerHTML=''; }
   function setView(view) {
     activeView=view;
     $$('.nav-item[data-view], .mobile-nav button[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
-    const labels={home:'Vue d’ensemble',courses:'Parcours & cours',speak:'Speaking Lab',vocab:'Vocabulaire',practice:'Quiz & examens',community:'Classe & discussion',library:'Bibliothèque',profile:'Mon profil & outils'};
+    const labels={home:'Vue d’ensemble',courses:'Parcours & cours',speak:'Speaking Lab',vocab:'Vocabulaire',practice:'Quiz & examens',community:'Classe & discussion',library:'Bibliothèque',world:'Monde de l’anglais',profile:'Mon profil & outils'};
     $('#currentPageLabel').textContent=labels[view]||'English Arena';
     mascot('view',{view});
     $('#sidebar').classList.remove('open');
@@ -122,15 +128,16 @@
   function renderView() {
     if (!progress || !profile) return;
     const container=$('#viewContainer');
-    const views={home:renderHome,courses:renderCourses,speak:renderSpeak,vocab:renderVocab,practice:renderPractice,community:renderCommunity,library:renderLibrary,profile:renderProfile};
+    const views={home:renderHome,courses:renderCourses,speak:renderSpeak,vocab:renderVocab,practice:renderPractice,community:renderCommunity,library:renderLibrary,world:()=>window.EAWorld?EAWorld.view():'',profile:renderProfile};
     container.innerHTML=(views[activeView]||renderHome)();
     if (activeView==='home' && profile.mode==='supabase' && isCloudMode()) loadCloudExtras();
     if(window.EAMascot)EAMascot.update(progress);
-    if(!window.__helloDone){window.__helloDone=1;setTimeout(()=>mascot('hello'),1200);}
+    if(!window.__helloDone){window.__helloDone=1;setTimeout(()=>mascot('hello'),1200);if(!progress.tourOffered){progress.tourOffered=1;setTimeout(()=>mascot('say',{text:'Nouveau ici ? Clique sur moi puis sur « Visite guidée » : je te montre tout le site 🦜',ms:10000,force:true}),9000);}}
     if(chatCloud())startRealtime();
     if (activeView==='community') { loadChat(); stopChatPolling(); if(chatCloud()) chatTimer=setInterval(()=>{if(!document.hidden)loadChat();},30000); } else stopChatPolling();
+    if (activeView==='world'&&window.EAWorld)EAWorld.after();
     if (activeView==='vocab') renderVocabCard();
-    if (activeView==='practice' && quizSession) renderQuizSession();
+    if (activeView==='practice' && window.EAQuiz && EAQuiz.active()) EAQuiz.render();
     if (activeView==='profile' && profile.mode==='supabase' && isCloudMode() && !classStatsFetched) {
       classStatsFetched = true; window.EACloud.stats().then(stats => { classStatsCache = stats; const count = $('#classCountValue'); if(count) count.textContent = formatNum(stats?.students_total || 0); const caption = $('#classCountCaption'); if(caption) caption.textContent = `${formatNum(stats?.active_7_days || 0)} actif(s) au cours des 7 derniers jours. Statistiques de la classe, sans afficher les noms.`; }).catch(() => { classStatsFetched=false; const count=$('#classCountValue'); if(count) count.textContent='—'; const caption=$('#classCountCaption'); if(caption) caption.textContent='Connexion cloud nécessaire pour actualiser ce compteur.'; });
     }
@@ -188,7 +195,7 @@
     return `${pageHeading('SPEAKING LAB',`Use English. <em>Out loud.</em>`,'Le meilleur entraînement est celui qui t’aide à prendre la parole. Choisis un scénario, réponds avec tes propres mots et compare ton idée à un modèle. Tout le scénario fonctionne hors ligne.',`<button class="secondary-button" data-action="speak-daily">Défi oral de 60 s ↗</button>`)}
       <div class="notice blue" style="margin-bottom:17px"><strong>La règle d’or :</strong> parle avant de chercher la phrase parfaite. Le bouton « Écouter » utilise la synthèse vocale disponible sur l'appareil. Le micro dépend du navigateur; certains navigateurs transmettent la reconnaissance vocale en ligne. Tu peux toujours écrire ta réponse à la place.</div>
       <div class="section-head"><div><h3>Choisis ton mode</h3><p>8 façons de t’entraîner : chaque mode change vraiment le déroulement.</p></div><span class="pill green">${EASim.MODES.find(m=>m.id===EASim.mode()).label.toUpperCase()}</span></div><div class="arcade-grid" style="margin-bottom:22px">${EASim.MODES.map(m=>`<button class="card game-card" style="text-align:left;${EASim.mode()===m.id?'border-color:var(--mint);box-shadow:0 0 0 1px var(--mint) inset':''}" data-action="simulation-mode" data-mode="${m.id}"><span class="game-ico">${m.icon}</span><strong>${m.label}</strong><small>${m.desc}</small></button>`).join('')}</div>
-      <div class="speaking-layout"><div><div class="section-head"><div><h3>Simulations de la vraie vie</h3><p>Des débuts guidés vers des réponses plus riches.</p></div><span class="pill green">${DATA.simulations.length} SCÉNARIOS</span></div><div class="scenario-grid">${DATA.simulations.map((s,i)=>`<article class="card scenario-card"><div class="scenario-top"><span class="scenario-symbol">${(['☻','↗','◇','◎','⇄','⚙','⌁','◖','✚','✈','🍽','💼','☎','🎤','🛠','🔭'][i]||'●')}</span><span class="pill ${s.level==='B1–B2'?'purple':'green'}">${s.level}</span></div><h3>${escapeHTML(s.title)}</h3><p>${escapeHTML(s.setting)}</p><div class="scenario-bottom"><span>⏱ ${s.duration}</span><button class="text-button" data-action="scenario-open" data-scenario="${s.id}">S'entraîner ↗</button></div></article>`).join('')}</div></div>
+      <div class="speaking-layout"><div><div class="section-head"><div><h3>Simulations de la vraie vie</h3><p>Des débuts guidés vers des réponses plus riches.</p></div><span class="pill green">${DATA.simulations.length} SCÉNARIOS</span></div><div class="scenario-grid">${DATA.simulations.map((s,i)=>`<article class="card scenario-card"><div class="scenario-top"><span class="scenario-symbol">${(['☻','↗','◇','◎','⇄','⚙','⌁','◖','✚','✈','🍽','💼','☎','🎤','🛠','🔭'][i]||['💬','🗣️','🎯','🌍','📞','🧠','🎓','🤝'][i%8])}</span><span class="pill ${s.level==='B1–B2'?'purple':'green'}">${s.level}</span></div><h3>${escapeHTML(s.title)}</h3><p>${escapeHTML(s.setting)}</p><div class="scenario-bottom"><span>⏱ ${s.duration}</span><button class="text-button" data-action="scenario-open" data-scenario="${s.id}">S'entraîner ↗</button></div></article>`).join('')}</div></div>
       <aside class="speaking-aside"><div class="card"><h3>Une méthode en 4 étapes</h3><p>Ne cherche pas à parler vite. Cherche à transmettre ton idée.</p><div class="tip-row"><span class="tip-bullet">1</span><div><strong>Think</strong><small>Prends cinq secondes pour organiser ton idée.</small></div></div><div class="tip-row"><span class="tip-bullet">2</span><div><strong>Speak</strong><small>Réponds en anglais même avec des phrases simples.</small></div></div><div class="tip-row"><span class="tip-bullet">3</span><div><strong>Improve</strong><small>Repère une chose à améliorer, pas dix.</small></div></div><div class="tip-row"><span class="tip-bullet">4</span><div><strong>Repeat</strong><small>Refais la réponse avec une phrase plus claire.</small></div></div></div><div class="card"><h3>Useful phrases</h3><p>Enregistre les phrases qui t’aident à débloquer une conversation.</p><div class="hint-list"><span class="hint-chip">Could you repeat that?</span><span class="hint-chip">In my opinion…</span><span class="hint-chip">I see your point, but…</span><span class="hint-chip">Let me think for a moment.</span></div><button class="ghost-button" style="width:100%" data-action="phrase-list">Mes phrases sauvées (${progress.savedPhrases.length})</button></div><div class="card"><h3>Ressources gratuites</h3><p>Des activités structurées sont proposées par le British Council. Ouvre-les quand tu as une connexion disponible.</p><a class="text-button" href="https://learnenglish.britishcouncil.org/free-resources/speaking" target="_blank" rel="noopener">British Council Speaking ↗</a></div></aside></div>`;
   }
   function renderVocab() {
@@ -256,25 +263,14 @@
         <div class="journey-list" id="chatList">${cloud?'<p>Chargement…</p>':(local.length?local.map(chatItem).join(''):'<div class="empty-state"><strong>Aucun message</strong></div>')}</div></div>`;
   }
   function renderPractice() {
-    return renderPracticeBase()+(quizSession?'':`<div class="section-title" style="margin-top:26px"><h3>⚔️ Duel de classe · temps réel</h3><span>Toute la classe en même temps</span></div><div class="card panel-pad"><p>Crée un duel et donne le code à tes camarades (ou rejoins celui de ton prof). Mêmes questions pour tous, classement en direct, rien n’est enregistré.</p><div class="button-row"><button class="primary-button" data-action="duel-open">Ouvrir le duel</button></div></div><div class="section-title" style="margin-top:26px"><h3>🎮 Arcade du vocabulaire</h3><span>6 jeux · records personnels</span></div><div class="arcade-grid">${EAGames.cardsHTML()}</div>`);
+    return renderPracticeBase()+(window.EAQuiz&&EAQuiz.active()?'':`<div class="section-title" style="margin-top:26px"><h3>⚔️ Duel de classe · temps réel</h3><span>Toute la classe en même temps</span></div><div class="card panel-pad"><p>Crée un duel et donne le code à tes camarades (ou rejoins celui de ton prof). Mêmes questions pour tous, classement en direct, rien n’est enregistré.</p><div class="button-row"><button class="primary-button" data-action="duel-open">Ouvrir le duel</button></div></div><div class="section-title" style="margin-top:26px"><h3>🎮 Arcade du vocabulaire</h3><span>6 jeux · records personnels</span></div><div class="arcade-grid">${EAGames.cardsHTML()}</div>`);
   }
   function renderPracticeBase() {
-    return `${pageHeading('TRAINING GROUND',`Practise. <em>Get sharper.</em>`,'Des quiz pour vérifier ta grammaire et ton vocabulaire, comprendre tes erreurs et préparer les épreuves de Terminale.',`<button class="primary-button" data-action="start-quiz">✳ Démarrer un quiz</button>`)}
-      ${quizSession?'<div id="quizLiveHost"></div>':`<div class="course-grid"><article class="card course-card"><div class="course-meta"><span class="course-icon">⚡</span><span class="pill purple">RAPIDE</span></div><h3>Quiz mixte · 10 questions</h3><p>Un entraînement rapide mêlant grammaire, vocabulaire et communication. Chaque erreur reçoit une explication.</p><div class="course-end"><span>5–8 minutes · + XP</span><button class="text-button" data-action="start-quiz">Jouer ↗</button></div></article><article class="card course-card"><div class="course-meta"><span class="course-icon">▤</span><span class="pill green">GRAMMAR</span></div><h3>Grammaire ciblée</h3><p>Concentre-toi sur les temps verbaux, les conditionnels, le passif et le discours rapporté.</p><div class="course-end"><span>Réponses expliquées</span><button class="text-button" data-action="start-quiz" data-category="Grammar">S'entraîner ↗</button></div></article><article class="card course-card"><div class="course-meta"><span class="course-icon">Aa</span><span class="pill orange">EXAMEN</span></div><h3>Stratégie d'examen</h3><p>Apprends à lire les consignes, structurer un paragraphe, organiser un essai et vérifier tes réponses.</p><div class="course-end"><span>Méthode Terminale</span><button class="text-button" data-action="exam-tips">Voir les conseils ↗</button></div></article></div>
-      <div class="section-title"><h3>Derniers résultats</h3><span>${progress.quizHistory.length} quiz terminé${progress.quizHistory.length===1?'':'s'}</span></div><div class="card panel-pad">${progress.quizHistory.length?`<div class="journey-list">${progress.quizHistory.slice(-5).reverse().map(q=>`<div class="journey-item"><div class="journey-day">${q.score}%</div><div class="journey-copy"><strong>${escapeHTML(q.label||'Quiz mixte')}</strong><small>${new Date(q.date).toLocaleDateString('fr-FR')} · ${q.correct}/${q.total} bonnes réponses</small></div><span class="pill ${q.score>=80?'green':'orange'}">${q.score>=80?'SOLIDE':'À REVOIR'}</span></div>`).join('')}</div>`:'<div class="empty-state"><strong>Ton premier score t’attend</strong><p>Termine un quiz pour identifier tes points forts et les notions à réviser.</p><button class="primary-button" data-action="start-quiz">Lancer le premier quiz</button></div>'}</div>`}`;
-  }
-  function renderQuizSession() {
-    const host=$('#quizLiveHost'); if(!host||!quizSession)return;
-    if (quizSession.finished) { host.innerHTML=renderQuizResults(); return; }
-    const q=quizSession.questions[quizSession.index];
-    if(!q) { host.innerHTML=renderQuizResults(); return; }
-    const chosen=quizSession.answers[quizSession.index];
-    const answered=chosen!==undefined;
-    host.innerHTML=`<div class="quiz-layout"><section class="card quiz-main"><div class="quiz-meta"><span class="pill purple">${escapeHTML(q.category)}</span><span class="tiny">Question ${quizSession.index+1} / ${quizSession.questions.length}</span></div><div class="quiz-progress"><span style="width:${quizSession.index/quizSession.questions.length*100}%"></span></div><h2 class="quiz-question">${escapeHTML(q.question)}</h2><div class="answer-list">${q.options.map((o,i)=>`<button class="answer-option ${answered&&i===q.answer?'correct':''} ${answered&&i===chosen&&chosen!==q.answer?'incorrect':''}" data-action="quiz-answer" data-answer="${i}" ${answered?'disabled':''}><span class="option-letter">${String.fromCharCode(65+i)}</span><span>${escapeHTML(o)}</span>${answered&&i===q.answer?'<b style="margin-left:auto;color:var(--mint)">✓</b>':''}</button>`).join('')}</div><div class="quiz-feedback ${answered?'show':''}"><strong>${answered?(chosen===q.answer?'Correct! Nice work.':'Not quite — learn from it.'):'Feedback'}</strong><p>${answered?escapeHTML(q.explanation):''}</p></div><div class="quiz-bottom"><button class="ghost-button" data-action="quiz-exit">Quitter</button>${answered?`<button class="primary-button" data-action="quiz-next">${quizSession.index+1===quizSession.questions.length?'Voir mon score':'Question suivante →'}</button>`:'<span class="tiny">Choisis une réponse pour continuer.</span>'}</div></section><aside class="quiz-side"><div class="card"><h3>Le réflexe gagnant</h3><p>Lis toute la phrase avant de choisir. Cherche l'indice grammatical (temps, sujet, connecteur) plutôt que de deviner.</p></div><div class="card"><h3>Ton score de session</h3><div class="result-score" style="font-size:35px">${quizSession.correct}</div><p>Bonne${quizSession.correct===1?'':'s'} réponse${quizSession.correct===1?'':'s'} jusqu'ici.</p></div><div class="card"><h3>Mode faible connexion</h3><p>Les questions sont intégrées au site : aucun appel réseau n’est nécessaire pour les faire.</p></div></aside></div>`;
-  }
-  function renderQuizResults() {
-    const total=quizSession.questions.length, correct=quizSession.correct, score=Math.round(correct/total*100);
-    return `<div class="card quiz-main" style="text-align:center"><span class="pill green">SESSION TERMINÉE</span><h2 style="font-size:26px;margin:20px 0 8px">Good work — tu as terminé !</h2><div class="result-score">${score}%</div><p>${correct}/${total} bonnes réponses. ${score>=80?'Très bon travail. Continue à consolider ces acquis.':score>=50?'Tu progresses. Relis les explications des questions ratées et refais un quiz demain.':'C’est un point de départ. Revois une petite leçon puis réessaie.'}</p><div class="progress-line" style="max-width:420px;margin:20px auto"><span style="width:${score}%"></span></div><div class="button-row" style="justify-content:center"><button class="primary-button" data-action="start-quiz">Refaire un quiz ↻</button><button class="ghost-button" data-action="quiz-exit">Retour aux entraînements</button></div><div class="section-title" style="text-align:left"><h3>À revoir</h3><span>Réponses expliquées</span></div><div class="journey-list" style="text-align:left">${quizSession.questions.map((q,i)=>{const a=quizSession.answers[i];return `<div class="journey-item"><div class="journey-day" style="background:${a===q.answer?'#8cf0ce14':'#ff8e9d10'};color:${a===q.answer?'var(--mint)':'var(--bad)'}">${a===q.answer?'✓':'↻'}</div><div class="journey-copy"><strong>${escapeHTML(q.question)}</strong><small>Ta réponse : ${escapeHTML(q.options[a])} · Réponse : ${escapeHTML(q.options[q.answer])}<br>${escapeHTML(q.explanation)}</small></div></div>`;}).join('')}</div></div>`;
+    const live=window.EAQuiz&&EAQuiz.active();
+    const history=progress.quizHistory||[];
+    return `${pageHeading('TRAINING GROUND',`Practise. <em>Get sharper.</em>`,'Quiz adaptatifs sans répétition : 12 000+ questions de A1 à C1, modes intenses, saisie au clavier, écoute, révision des erreurs et pouvoirs de badges.',live?'':`<button class="primary-button" data-action="start-quiz">✳ Démarrer un quiz</button>`)}
+      ${live?'<div id="quizLiveHost"></div>':`${EAQuiz.homeHTML()}
+      <div class="section-title"><h3>Derniers résultats</h3><span>${history.length} quiz terminé${history.length===1?'':'s'}</span></div><div class="card panel-pad">${history.length?`<div class="journey-list">${history.slice(-5).reverse().map(q=>`<div class="journey-item"><div class="journey-day">${q.score}%</div><div class="journey-copy"><strong>${escapeHTML(q.label||'Quiz mixte')}</strong><small>${new Date(q.date).toLocaleDateString('fr-FR')} · ${q.correct}/${q.total} bonnes réponses</small></div><span class="pill ${q.score>=80?'green':'orange'}">${q.score>=80?'SOLIDE':'À REVOIR'}</span></div>`).join('')}</div>`:'<div class="empty-state"><strong>Ton premier score t’attend</strong><p>Termine un quiz pour identifier tes points forts et les notions à réviser.</p></div>'}</div>`}`;
   }
   function renderLibrary() {
     const files=[{name:'Cours complet · English for Terminale',detail:'317 pages · programme de 56 jours',path:COURSE_PDF,size:'PDF'},...Array.from({length:8},(_,i)=>({name:`Semaine ${i+1} · ${DATA.weekThemes[i]}`,detail:`Jours ${String(i*7+1).padStart(2,'0')}–${String(i*7+7).padStart(2,'0')} · format léger par semaine`,path:getWeekPDF(i+1),size:'PDF'}))];
@@ -287,7 +283,7 @@
     const unlocked=progress.achievements||[];
     const badges=[['firstLesson','📘','Premier pas','Terminer une leçon'],['week1','🧭','Une semaine','Terminer 7 leçons'],['word10','🔤','Mots en poche','Maîtriser 10 mots'],['quiz80','🎯','Précision','Atteindre 80 % à un quiz'],['streak7','🔥','Une vraie série','Étudier 7 jours de suite'],['phrase5','💬','Voix confiante','Sauver 5 phrases utiles']];
     return `${pageHeading('TON PROFIL',`Own your <em>progress.</em>`,"Gère tes préférences, protège tes données et exporte une sauvegarde de tes progrès avant de changer d’appareil.",`<button class="secondary-button" data-action="export-progress">↓ Exporter une sauvegarde</button>`)}
-      <div class="profile-grid"><section class="card profile-card"><div class="profile-id"><div class="profile-avatar">${escapeHTML(profile.name.charAt(0).toUpperCase())}</div><div><h3>${escapeHTML(profile.name)}</h3><p>${profile.mode==='supabase'?'Compte avec synchronisation cloud':'Profil local sur cet appareil'} · Depuis ${new Date(profile.createdAt).toLocaleDateString('fr-FR')}</p></div></div><div class="settings-row"><div><strong>Mon niveau préféré</strong><small>Les leçons restent accessibles à tous les niveaux.</small></div><select id="levelSelect" class="select-field"><option value="mixte" ${progress.level==='mixte'?'selected':''}>Mixte</option><option value="debutant" ${progress.level==='debutant'?'selected':''}>Débutant</option><option value="intermediaire" ${progress.level==='intermediaire'?'selected':''}>Intermédiaire</option><option value="avance" ${progress.level==='avance'?'selected':''}>Avancé</option></select></div><div class="settings-row"><div><strong>Mon objectif journalier</strong><small>Choisis une durée réaliste pour rester régulier.</small></div><select id="goalSelect" class="select-field"><option value="15" ${progress.goalMinutes===15?'selected':''}>15 minutes</option><option value="30" ${progress.goalMinutes===30?'selected':''}>30 minutes</option><option value="45" ${progress.goalMinutes===45?'selected':''}>45 minutes</option><option value="60" ${progress.goalMinutes===60?'selected':''}>60 minutes</option></select></div><div class="settings-row"><div><strong>Rappels dans le navigateur</strong><small>Notification locale quand tu reviens sur l’app. Ce n’est pas un SMS.</small></div><button class="toggle ${progress.reminder.enabled?'on':''}" data-action="toggle-reminder" aria-label="Activer les rappels locaux"></button></div><div class="settings-row"><div><strong>Heure souhaitée</strong><small>Heure locale approximative du rappel.</small></div><input id="reminderTime" class="form-field" style="max-width:125px" type="time" value="${escapeHTML(progress.reminder.time||'19:00')}"></div><div class="button-row" style="margin-top:17px"><button class="primary-button" data-action="export-progress">Exporter les données JSON</button><button class="ghost-button" data-action="import-progress">Importer une sauvegarde</button><button class="ghost-button" data-action="export-ics">Ajouter au calendrier (.ics)</button><input id="importFile" type="file" accept="application/json" hidden></div><div style="margin-top:15px"><button class="ghost-button danger-button" data-action="logout">Changer de profil sur cet appareil</button></div></section>
+      <div class="profile-grid"><section class="card profile-card"><div class="profile-id"><div class="profile-avatar">${escapeHTML(profile.name.charAt(0).toUpperCase())}</div><div><h3>${escapeHTML(profile.name)}</h3><p>${profile.mode==='supabase'?'Compte avec synchronisation cloud':'Profil local sur cet appareil'} · Depuis ${new Date(profile.createdAt).toLocaleDateString('fr-FR')}</p></div></div><div class="settings-row"><div><strong>Mon niveau préféré</strong><small>Les leçons restent accessibles à tous les niveaux.</small></div><select id="levelSelect" class="select-field"><option value="mixte" ${progress.level==='mixte'?'selected':''}>Mixte</option><option value="debutant" ${progress.level==='debutant'?'selected':''}>Débutant</option><option value="intermediaire" ${progress.level==='intermediaire'?'selected':''}>Intermédiaire</option><option value="avance" ${progress.level==='avance'?'selected':''}>Avancé</option></select></div><div class="settings-row"><div><strong>Mon objectif journalier</strong><small>Choisis une durée réaliste pour rester régulier.</small></div><select id="goalSelect" class="select-field"><option value="15" ${progress.goalMinutes===15?'selected':''}>15 minutes</option><option value="30" ${progress.goalMinutes===30?'selected':''}>30 minutes</option><option value="45" ${progress.goalMinutes===45?'selected':''}>45 minutes</option><option value="60" ${progress.goalMinutes===60?'selected':''}>60 minutes</option></select></div><div class="settings-row"><div><strong>Rappels dans le navigateur</strong><small>Notification locale quand tu reviens sur l’app. Ce n’est pas un SMS.</small></div><button class="toggle ${progress.reminder.enabled?'on':''}" data-action="toggle-reminder" aria-label="Activer les rappels locaux"></button></div><div class="settings-row"><div><strong>Heure souhaitée</strong><small>Heure locale approximative du rappel.</small></div><input id="reminderTime" class="form-field" style="max-width:125px" type="time" value="${escapeHTML(progress.reminder.time||'19:00')}"></div><div class="settings-row" style="display:block"><strong>🔊 Voix</strong><small>Vitesse et voix anglaise utilisées partout (leçons, quiz, simulations, mascotte).</small>${window.EASpeech?EASpeech.settingsHTML():''}</div><div class="button-row" style="margin-top:12px"><button class="secondary-button" data-action="tour-start">🦜 Visite guidée avec Kiki</button><button class="ghost-button" data-action="tour-explain">❓ Mode « explique-moi les boutons »</button></div><div class="button-row" style="margin-top:17px"><button class="primary-button" data-action="export-progress">Exporter les données JSON</button><button class="ghost-button" data-action="import-progress">Importer une sauvegarde</button><button class="ghost-button" data-action="export-ics">Ajouter au calendrier (.ics)</button><input id="importFile" type="file" accept="application/json" hidden></div><div style="margin-top:15px"><button class="ghost-button danger-button" data-action="logout">Changer de profil sur cet appareil</button></div></section>
       <div class="right-stack"><section class="card profile-card"><div class="section-head"><h3>Mes badges</h3><span class="pill orange">${unlocked.length}/${window.EABadges?EABadges.total:0}</span></div>${window.EABadges?EABadges.wall(progress):''}</section><section class="card profile-card"><div class="section-head"><h3>Confidentialité & compte</h3><span class="pill">À SAVOIR</span></div>${isCloudMode()?`<div class="notice blue"><strong>Mode cloud prêt.</strong> Les codes individuels sont vérifiés par Supabase et les progrès sont synchronisés lorsque la connexion est disponible.</div>`:`<div class="notice"><strong>Mode local activé.</strong> Tes progrès sont enregistrés uniquement dans le navigateur de cet appareil. Pour valider des codes différents par élève, compter la classe sur plusieurs appareils et synchroniser les progrès, configure le backend optionnel dans <code>docs/CLOUD_SETUP.md</code>.</div>`}<div class="settings-row"><div><strong>Profil local</strong><small>Nom et progrès sauvegardés sur cet appareil.</small></div><span class="pill green">ACTIF</span></div><div class="settings-row"><div><strong>Connexion réseau</strong><small>Leçons, cartes et quiz fonctionnent sans requêtes réseau.</small></div><span class="pill green">ÉCONOME</span></div><div class="settings-row"><div><strong>Rappels SMS</strong><small>Non activés : nécessite un service côté serveur et un budget SMS.</small></div><span class="pill orange">PHASE 2</span></div></section><section class="card profile-card"><div class="section-head"><h3>${profile.mode==='supabase'?'Compteur de la classe':'Compteur local'}</h3><span class="pill purple">${profile.mode==='supabase'?'CLOUD':'CET APPAREIL'}</span></div><strong class="stat-number" id="classCountValue">${profile.mode==='supabase'?'…':getProfiles().length}</strong><p class="tiny" id="classCountCaption">${profile.mode==='supabase'?'Chargement du compteur de classe…':'Nombre de profils enregistrés dans ce navigateur, pas le nombre réel d’élèves. Le compteur partagé nécessite le cloud.'}</p><button class="ghost-button" style="width:100%" data-action="show-cloud-guide">Voir les étapes cloud ↗</button></section></div></div>`;
   }
   function renderOnboarding() {
@@ -328,7 +324,7 @@
     p.mode='supabase'; p.cloudId=remote.cloudId; p.name=remote.name||name; p.createdAt=p.createdAt||remote.createdAt;
     storeProfiles(profiles);storeActiveProfile(p);
     progress=getLocalProgress(p.id);
-    try { const remoteState=await window.EACloud.loadProgress(); if(remoteState && typeof remoteState==='object'){progress={...defaultProgress(),...remoteState};localStorage.setItem(PROGRESS_PREFIX+p.id,JSON.stringify(progress));} }
+    try { const remoteState=await window.EACloud.loadProgress(); if(remoteState && typeof remoteState==='object'){progress=migrateProgress(remoteState);localStorage.setItem(PROGRESS_PREFIX+p.id,JSON.stringify(progress));} }
     catch(e) { console.warn('Cloud state load skipped:',e.message); }
     $('#onboardingBackdrop').hidden=true;document.body.style.overflow='';setView('home');saveNow();toast(`Bienvenue dans la classe, ${p.name} !`);
   }
@@ -350,32 +346,12 @@
   function openScenario(id) { EASim.open(id); }
 
   function sendScenarioAnswer() { EASim.send(false); }
-  function startQuiz(category='') {
-    const available=category?DATA.quizzes.filter(q=>q.category===category):DATA.quizzes;
-    const qs=shuffle(available.length>=10?available:DATA.quizzes).slice(0,10);
-    quizSession={questions:qs,index:0,answers:[],correct:0,category:category||'Mixte'};quizStartTime=Date.now();setView('practice');
-  }
-  function answerQuiz(answer) {
-    if(!quizSession||quizSession.answers[quizSession.index]!==undefined)return;
-    const q=quizSession.questions[quizSession.index];quizSession.answers[quizSession.index]=Number(answer);if(Number(answer)===q.answer)quizSession.correct++;
-    renderQuizSession();
-  }
-  function nextQuiz() {
-    if(quizSession.index+1<quizSession.questions.length){quizSession.index++;renderQuizSession();return;}
-    const total=quizSession.questions.length,score=Math.round(quizSession.correct/total*100),duration=Math.max(1,Math.round((Date.now()-quizStartTime)/60000));
-    quizSession.finished=true;
-    progress.quizHistory.push({date:new Date().toISOString(),score,correct:quizSession.correct,total,label:`Quiz ${quizSession.category}`});progress.quizHistory=progress.quizHistory.slice(-20);progress.totalAnswers=(progress.totalAnswers||0)+total;progress.correctAnswers=(progress.correctAnswers||0)+quizSession.correct;touchStudy(duration);addXP(10+quizSession.correct*3,'Quiz terminé');mascot('quiz',{score});
-    renderQuizSession();saveNow();
-  }
   function completeMission() {
     const m=currentMission(), today=todayKey();if(progress.lastMissionDate===today){toast('Mission du jour déjà terminée. Reviens demain !');return;}
     openModal(`<div class="eyebrow">MISSION DU JOUR</div><h2>${escapeHTML(m.title)}</h2><p>${escapeHTML(m.desc)}</p><p>Prends quelques minutes pour faire l’activité dans le module correspondant. Coche ensuite la mission pour enregistrer ton effort.</p><div class="notice blue"><strong>Petit conseil :</strong> la mission récompense la régularité, pas la perfection. Fais-la avec tes propres mots.</div><div class="button-row" style="margin-top:17px"><button class="primary-button" data-action="mission-done">J’ai fait la mission · +${m.points} XP</button><button class="ghost-button" data-action="view" data-view="${m.kind==='speak'?'speak':m.kind==='vocab'?'vocab':m.kind==='quiz'?'practice':'courses'}">Ouvrir l’activité ↗</button></div>`);
   }
   function finishMission() { const m=currentMission(),today=todayKey();if(progress.lastMissionDate===today){toast('Mission déjà validée.');closeModal();return;}progress.lastMissionDate=today;progress.completedMissions.push({date:today,title:m.title});addXP(m.points,'Mission accomplie');touchStudy(5);closeModal();renderView(); }
-  function speakText(text) {
-    if(!('speechSynthesis' in window)){toast('La synthèse vocale n’est pas disponible sur ce navigateur.');return;}
-    window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(text||''));utterance.lang='en-US';utterance.rate=.87;utterance.pitch=1;const voices=window.speechSynthesis.getVoices();const english=voices.find(v=>/^en(-|_)/i.test(v.lang));if(english)utterance.voice=english;window.speechSynthesis.speak(utterance);
-  }
+  function speakText(text) { if(window.EASpeech)EASpeech.say(String(text||'')); else toast('La synthèse vocale n’est pas disponible sur ce navigateur.'); }
   function voiceUI(on){const b=$('[data-action="voice-test"]');if(b)b.textContent=on?'Couper le micro':'🎧 Tester mon micro';}
   async function voiceToggle(){
     if(!window.EAVoice){toast('Module micro indisponible.');return;}
@@ -391,25 +367,13 @@
       else{EAVoice.startRecording();if(b)b.textContent='⏹ Arrêter';}
     }catch(e){toast(e.message||'Enregistrement impossible.');}
   }
-  async function startSpeechRecognition() {
-    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){toast('Reconnaissance vocale non disponible ici. Écris ta réponse; Chrome la propose.');return;}
-    let track=null;
-    try{if(window.EAVoice){if(!EAVoice.isOpen())await voiceToggle();track=EAVoice.cleanTrack();}}catch(_){}
-    try{
-      const rec=new SR();rec.lang='en-US';rec.interimResults=false;rec.maxAlternatives=1;
-      rec.onresult=e=>{const target=$('#scenarioAnswer');if(target)target.value+=(target.value?' ':'')+e.results[0][0].transcript;toast('Texte reconnu. Relis-le puis envoie ta réponse.');if(window.EASim)EASim.onSpeech();};
-      rec.onerror=e=>toast(e.error==='not-allowed'?'Autorise le micro dans le navigateur, ou réponds par écrit.':e.error==='no-speech'?'Je n’ai rien entendu : parle plus près du micro.':'Micro indisponible. Essaie de répondre par écrit.');
-      try{rec.start(track||undefined);}catch(_){rec.start();}
-      toast('Parle maintenant en anglais 🎙');
-    }catch(_){toast('Impossible de démarrer le micro. Utilise le champ texte.');}
-  }
+  async function startSpeechRecognition() { if(window.EASim)return EASim.mic(); }
   function exportData() {
     const payload={app:'English Arena',version:1,exportedAt:new Date().toISOString(),profile:{name:profile.name,createdAt:profile.createdAt},progress};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`english-arena-${profile.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}-backup.json`;a.click();URL.revokeObjectURL(url);toast('Sauvegarde exportée. Garde ce fichier privé.');
   }
   function importData(file) {
-    if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(!data||data.app!=='English Arena'||!data.progress)throw new Error('Fichier non reconnu.');progress={...defaultProgress(),...data.progress};saveNow();renderView();toast('Sauvegarde importée avec succès.');}catch(e){toast(e.message||'Impossible de lire ce fichier.');}};reader.readAsText(file);
+    if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(!data||data.app!=='English Arena'||!data.progress)throw new Error('Fichier non reconnu.');progress=migrateProgress(data.progress);saveNow();renderView();toast('Sauvegarde importée avec succès.');}catch(e){toast(e.message||'Impossible de lire ce fichier.');}};reader.readAsText(file);
   }
   function exportICS() {
     const time=progress.reminder.time||'19:00';const [h,m]=time.split(':').map(Number);const start=new Date();start.setHours(h,m,0,0);const end=new Date(start.getTime()+15*60000);const fmt=d=>d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+'00';
@@ -458,14 +422,13 @@
     if(a==='scenario-restart')return EASim.open(EASim.currentId());
     if(a==='scenario-close'){closeModal();return setView('speak');}
     if(a==='speak-text')return speakText(btn.dataset.text);
+    if(a==='speech-test'){return EASpeech.say('Hello! This is your English voice. I can read long sentences without stopping, so you can listen to everything.');}
+    if(a==='speech-stop'){EASpeech.stop();EASpeech.stopListening();return;}
     if(a==='insert-hint'){const field=$('#scenarioAnswer');if(field){field.value+=(field.value?' ':'')+btn.dataset.hint;field.focus();}return;}
     if(a==='save-phrase'){const phrase=btn.dataset.phrase;progress.savedPhrases=[...new Set([...(progress.savedPhrases||[]),phrase])].slice(0,60);saveNow();toast('Phrase ajoutée à tes favoris.');return;}
     if(a==='phrase-list'){const phrases=progress.savedPhrases||[];return openModal(`<div class="eyebrow">MY PHRASES</div><h2>Mes phrases utiles</h2>${phrases.length?`<div class="journey-list">${phrases.map((p,i)=>`<div class="journey-item"><div class="journey-day">${i+1}</div><div class="journey-copy"><strong>${escapeHTML(p)}</strong></div><button class="text-button" data-action="speak-text" data-text="${escapeHTML(p)}">🔊</button></div>`).join('')}</div>`:'<p>Tu n’as pas encore enregistré de phrase. Pendant les simulations, utilise « Sauver la phrase » pour créer ta collection personnelle.</p>'}`);}
     if(a==='speak-daily')return openScenario('oral');
-    if(a==='start-quiz')return startQuiz(btn.dataset.category||'');
-    if(a==='quiz-answer')return answerQuiz(btn.dataset.answer);
-    if(a==='quiz-next')return nextQuiz();
-    if(a==='quiz-exit'){quizSession=null;return setView('practice');}
+    if(a==='start-quiz'||a.startsWith('quiz-'))return EAQuiz.action(a,btn);
     if(a==='exam-tips')return showExamTips();
     if(a==='mission-start')return completeMission();
     if(a==='mission-done')return finishMission();
@@ -486,6 +449,8 @@
     if(a==='open-pdf')return openPDF(btn.dataset.path,false);
     if(a==='download-pdf')return openPDF(btn.dataset.path,true);
     if(a.startsWith('sim-'))return EASim.action(a,btn);
+    if(a.startsWith('world-')||a.startsWith('tourn-'))return EAWorld.action(a,btn);
+    if(a.startsWith('tour-')||a.startsWith('kiki-'))return EATour.action(a,btn);
     if(a.startsWith('duel-'))return EADuel.action(a,btn);
     if(a.startsWith('game-'))return EAGames.action(a,btn);
     if(a==='close-modal')return closeModal();
@@ -530,9 +495,9 @@
     setupEvents();
     if(!('speechSynthesis'in window)){}else window.speechSynthesis.getVoices();
     const profiles=getProfiles(), activeId=localStorage.getItem(ACTIVE_KEY);profile=profiles.find(p=>p.id===activeId)||null;
-    if(profile){progress=getLocalProgress(profile.id);if(profile.mode==='supabase'&&isCloudMode()&&navigator.onLine){window.EACloud.loadProgress().then(remote=>{if(remote&&typeof remote==='object'){progress={...defaultProgress(),...remote};saveNow();renderView();}}).catch(()=>{});}updateChrome();renderView();}
+    if(profile){progress=getLocalProgress(profile.id);if(profile.mode==='supabase'&&isCloudMode()&&navigator.onLine){window.EACloud.loadProgress().then(remote=>{if(remote&&typeof remote==='object'){progress=migrateProgress(remote);saveNow();renderView();}}).catch(()=>{});}updateChrome();renderView();}
     else showOnboarding();
   }
-  window.EAApp={DATA,openModal,closeModal,toast,addXP,touchStudy,saveNow,bump,esc:escapeHTML,getProgress:()=>progress,getProfile:()=>profile,isCloud:()=>chatCloud(),view:setView};
+  window.EAApp={migrate:migrateProgress,DATA,openModal,closeModal,toast,addXP,touchStudy,saveNow,bump,esc:escapeHTML,getProgress:()=>progress,getProfile:()=>profile,isCloud:()=>chatCloud(),view:setView};
   boot();
 })();

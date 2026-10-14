@@ -538,3 +538,284 @@ drop policy if exists "ea realtime read" on realtime.messages;
 create policy "ea realtime read" on realtime.messages for select to authenticated using (public.is_active_student() or public.is_admin());
 drop policy if exists "ea realtime write" on realtime.messages;
 create policy "ea realtime write" on realtime.messages for insert to authenticated with check (public.is_active_student() or public.is_admin());
+
+-- =====================================================================
+-- DUELS EN TEMPS RÉEL + TOURNOIS : moteur de score AUTORITAIRE côté serveur
+-- (ajouts uniquement : aucune table existante n'est modifiée, aucun élève n'est effacé)
+--  * la bonne réponse n'est JAMAIS envoyée aux joueurs avant qu'ils aient répondu ;
+--  * le chrono et les points sont calculés par la base (now()), pas par le navigateur ;
+--  * le Broadcast ne sert plus qu'à « réveiller » les clients, qui relisent l'état officiel.
+-- =====================================================================
+create or replace function public.ea_me() returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select p.id from public.student_profiles p
+  join public.access_codes c on c.code_hash = p.code_hash and c.is_enabled = true
+  where p.auth_uid = auth.uid();
+$$;
+revoke all on function public.ea_me() from public; grant execute on function public.ea_me() to authenticated;
+
+create table if not exists public.duel_rooms (
+  code text primary key check (code ~ '^[A-Z]{4}$'),
+  host uuid not null references public.student_profiles(id) on delete cascade,
+  status text not null default 'lobby' check (status in ('lobby','running','done')),
+  nq int not null check (nq between 3 and 30),
+  qtime_ms int not null check (qtime_ms between 5000 and 60000),
+  cur int not null default -1,
+  q_started timestamptz,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.duel_questions (
+  code text not null references public.duel_rooms(code) on delete cascade,
+  idx int not null, question text not null, options jsonb not null,
+  primary key (code, idx)
+);
+create table if not exists public.duel_keys (
+  code text not null, idx int not null, answer int not null check (answer between 0 and 3),
+  primary key (code, idx), foreign key (code, idx) references public.duel_questions(code, idx) on delete cascade
+);
+create table if not exists public.duel_players (
+  code text not null references public.duel_rooms(code) on delete cascade,
+  student_id uuid not null references public.student_profiles(id) on delete cascade,
+  name text not null, score int not null default 0, joined_at timestamptz not null default now(),
+  primary key (code, student_id)
+);
+create table if not exists public.duel_answers (
+  code text not null, idx int not null, student_id uuid not null,
+  choice int not null, ok boolean not null, pts int not null, ms int not null,
+  primary key (code, idx, student_id),
+  foreign key (code, student_id) references public.duel_players(code, student_id) on delete cascade
+);
+alter table public.duel_rooms enable row level security;
+alter table public.duel_questions enable row level security;
+alter table public.duel_keys enable row level security;
+alter table public.duel_players enable row level security;
+alter table public.duel_answers enable row level security;
+revoke all on public.duel_rooms, public.duel_questions, public.duel_keys, public.duel_players, public.duel_answers from anon, authenticated;
+
+create or replace function public.create_duel(p_code text, p_questions jsonb, p_qtime_ms int default 15000)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_me uuid := public.ea_me(); v_name text; v_n int; v_i int; v_q jsonb;
+begin
+  if v_me is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  if p_code !~ '^[A-Z]{4}$' then raise exception 'Code invalide.' using errcode = '22023'; end if;
+  if jsonb_typeof(p_questions) <> 'array' then raise exception 'Questions invalides.' using errcode = '22023'; end if;
+  v_n := jsonb_array_length(p_questions);
+  if v_n not between 3 and 30 then raise exception 'Entre 3 et 30 questions.' using errcode = '22023'; end if;
+  if p_qtime_ms not between 5000 and 60000 then raise exception 'Temps invalide.' using errcode = '22023'; end if;
+  delete from public.duel_rooms where created_at < now() - interval '1 day' or host = v_me;
+  if exists (select 1 from public.duel_rooms where code = p_code) then raise exception 'Ce code est déjà utilisé, réessaie.' using errcode = 'P0001'; end if;
+  select display_name into v_name from public.student_profiles where id = v_me;
+  insert into public.duel_rooms(code, host, nq, qtime_ms) values (p_code, v_me, v_n, p_qtime_ms);
+  for v_i in 0 .. v_n - 1 loop
+    v_q := p_questions -> v_i;
+    if jsonb_typeof(v_q -> 'o') <> 'array' or jsonb_array_length(v_q -> 'o') <> 4 or (v_q ->> 'a') !~ '^[0-3]$'
+       or char_length(coalesce(v_q ->> 'q', '')) not between 3 and 400 then raise exception 'Question % invalide.', v_i using errcode = '22023'; end if;
+    insert into public.duel_questions(code, idx, question, options) values (p_code, v_i, v_q ->> 'q', v_q -> 'o');
+    insert into public.duel_keys(code, idx, answer) values (p_code, v_i, (v_q ->> 'a')::int);
+  end loop;
+  insert into public.duel_players(code, student_id, name) values (p_code, v_me, v_name);
+end $$;
+
+create or replace function public.join_duel(p_code text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_me uuid := public.ea_me(); v_name text; v_r public.duel_rooms;
+begin
+  if v_me is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  select * into v_r from public.duel_rooms where code = upper(p_code);
+  if not found or v_r.status = 'done' then raise exception 'Duel introuvable ou terminé.' using errcode = 'P0001'; end if;
+  if (select count(*) from public.duel_players where code = v_r.code) >= 60 then raise exception 'Duel complet (60 joueurs).' using errcode = 'P0001'; end if;
+  select display_name into v_name from public.student_profiles where id = v_me;
+  insert into public.duel_players(code, student_id, name) values (v_r.code, v_me, v_name) on conflict do nothing;
+end $$;
+
+create or replace function public.start_duel(p_code text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.duel_rooms set status = 'running', cur = 0, q_started = now()
+   where code = p_code and host = public.ea_me() and status = 'lobby';
+  if not found then raise exception 'Seul le créateur peut lancer un duel en attente.' using errcode = '42501'; end if;
+end $$;
+
+create or replace function public.advance_duel(p_code text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_r public.duel_rooms; v_answered int; v_players int;
+begin
+  select * into v_r from public.duel_rooms where code = p_code and host = public.ea_me() for update;
+  if not found or v_r.status <> 'running' then raise exception 'Duel non lancé.' using errcode = '42501'; end if;
+  select count(*) into v_players from public.duel_players where code = p_code;
+  select count(*) into v_answered from public.duel_answers where code = p_code and idx = v_r.cur;
+  if now() < v_r.q_started + make_interval(secs => v_r.qtime_ms / 1000.0) and v_answered < v_players then
+    raise exception 'Trop tôt : la question est encore en cours.' using errcode = 'P0001'; end if;
+  if v_r.cur + 1 >= v_r.nq then update public.duel_rooms set status = 'done' where code = p_code;
+  else update public.duel_rooms set cur = cur + 1, q_started = now() where code = p_code; end if;
+end $$;
+
+create or replace function public.submit_duel_answer(p_code text, p_idx int, p_choice int) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_me uuid := public.ea_me(); v_r public.duel_rooms; v_ms int; v_key int; v_ok boolean; v_pts int;
+begin
+  if v_me is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  if p_choice not between 0 and 3 then raise exception 'Choix invalide.' using errcode = '22023'; end if;
+  select * into v_r from public.duel_rooms where code = p_code;
+  if not found or v_r.status <> 'running' or v_r.cur <> p_idx then raise exception 'Question terminée.' using errcode = 'P0001'; end if;
+  if not exists (select 1 from public.duel_players where code = p_code and student_id = v_me) then raise exception 'Tu ne joues pas dans ce duel.' using errcode = '42501'; end if;
+  if exists (select 1 from public.duel_answers where code = p_code and idx = p_idx and student_id = v_me) then raise exception 'Déjà répondu.' using errcode = 'P0001'; end if;
+  v_ms := floor(extract(epoch from (now() - v_r.q_started)) * 1000)::int;
+  if v_ms > v_r.qtime_ms + 1500 then raise exception 'Trop tard.' using errcode = 'P0001'; end if;
+  select answer into v_key from public.duel_keys where code = p_code and idx = p_idx;
+  v_ok := (v_key = p_choice);
+  v_pts := case when v_ok then 100 + round(greatest(0, v_r.qtime_ms - v_ms) / 150.0)::int else 0 end;
+  insert into public.duel_answers(code, idx, student_id, choice, ok, pts, ms) values (p_code, p_idx, v_me, p_choice, v_ok, v_pts, v_ms);
+  update public.duel_players set score = score + v_pts where code = p_code and student_id = v_me;
+  return jsonb_build_object('ok', v_ok, 'pts', v_pts, 'correct', v_key);
+end $$;
+
+create or replace function public.duel_state(p_code text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_me uuid := public.ea_me(); v_r public.duel_rooms; v_el int; v_reveal boolean; v_ans int; v_pl int; v_q jsonb; v_key int; v_mine int;
+begin
+  if v_me is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  select * into v_r from public.duel_rooms where code = p_code;
+  if not found then raise exception 'Duel introuvable.' using errcode = 'P0001'; end if;
+  if not exists (select 1 from public.duel_players where code = p_code and student_id = v_me) then raise exception 'Tu ne joues pas dans ce duel.' using errcode = '42501'; end if;
+  v_el := case when v_r.q_started is null then null else floor(extract(epoch from (now() - v_r.q_started)) * 1000)::int end;
+  select count(*) into v_pl from public.duel_players where code = p_code;
+  if v_r.status = 'running' then
+    select count(*) into v_ans from public.duel_answers where code = p_code and idx = v_r.cur;
+    v_reveal := v_el >= v_r.qtime_ms or v_ans >= v_pl;
+    select jsonb_build_object('idx', idx, 'q', question, 'o', options) into v_q from public.duel_questions where code = p_code and idx = v_r.cur;
+    select choice into v_mine from public.duel_answers where code = p_code and idx = v_r.cur and student_id = v_me;
+    if v_reveal or v_mine is not null then select answer into v_key from public.duel_keys where code = p_code and idx = v_r.cur; end if;
+  end if;
+  return jsonb_build_object('status', v_r.status, 'cur', v_r.cur, 'nq', v_r.nq, 'qtime_ms', v_r.qtime_ms, 'elapsed_ms', v_el,
+    'is_host', v_r.host = v_me, 'question', v_q, 'reveal', coalesce(v_reveal, false), 'answer', v_key, 'mine', v_mine,
+    'players', (select coalesce(jsonb_agg(jsonb_build_object('name', p.name, 'score', p.score, 'me', p.student_id = v_me,
+         'answered', exists (select 1 from public.duel_answers a where a.code = p.code and a.idx = v_r.cur and a.student_id = p.student_id)) order by p.score desc, p.joined_at), '[]'::jsonb)
+       from public.duel_players p where p.code = p_code));
+end $$;
+
+-- ---------- Tournois : TOUTES les manches sont générées automatiquement ----------
+create table if not exists public.tournaments (
+  id uuid primary key default gen_random_uuid(),
+  host uuid not null references public.student_profiles(id) on delete cascade,
+  name text not null check (char_length(name) between 2 and 60),
+  format text not null check (format in ('roundrobin','knockout')),
+  status text not null default 'running' check (status in ('running','done')),
+  created_at timestamptz not null default now()
+);
+create table if not exists public.tournament_teams (
+  tournament_id uuid not null references public.tournaments(id) on delete cascade,
+  seed int not null, name text not null check (char_length(name) between 1 and 40),
+  primary key (tournament_id, seed)
+);
+create table if not exists public.tournament_matches (
+  id uuid primary key default gen_random_uuid(),
+  tournament_id uuid not null references public.tournaments(id) on delete cascade,
+  round int not null, slot int not null,
+  team_a int, team_b int, score_a int, score_b int, winner int,
+  is_bye boolean not null default false,
+  next_match uuid, next_side text check (next_side in ('a','b')),
+  unique (tournament_id, round, slot)
+);
+alter table public.tournaments enable row level security;
+alter table public.tournament_teams enable row level security;
+alter table public.tournament_matches enable row level security;
+revoke all on public.tournaments, public.tournament_teams, public.tournament_matches from anon, authenticated;
+
+create or replace function public.create_tournament(p_name text, p_format text, p_teams text[]) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_me uuid := public.ea_me(); v_id uuid; v_n int; v_i int; v_r int; v_m int; v_arr int[]; v_p int; v_ord int[]; v_next int[]; v_len int; v_x int; v_rounds int;
+  v_a int; v_b int; v_mid uuid; v_nm uuid; rec record;
+begin
+  if v_me is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  if p_format not in ('roundrobin','knockout') then raise exception 'Format invalide.' using errcode = '22023'; end if;
+  v_n := coalesce(array_length(p_teams, 1), 0);
+  if v_n not between 2 and 32 then raise exception 'Entre 2 et 32 équipes.' using errcode = '22023'; end if;
+  if exists (select 1 from unnest(p_teams) t where char_length(trim(t)) not between 1 and 40) or (select count(distinct lower(trim(t))) from unnest(p_teams) t) <> v_n then
+    raise exception 'Noms d’équipes vides ou en double.' using errcode = '22023'; end if;
+  delete from public.tournaments where created_at < now() - interval '60 days';
+  insert into public.tournaments(host, name, format) values (v_me, left(trim(p_name), 60), p_format) returning id into v_id;
+  for v_i in 1 .. v_n loop insert into public.tournament_teams(tournament_id, seed, name) values (v_id, v_i, left(trim(p_teams[v_i]), 40)); end loop;
+
+  if p_format = 'roundrobin' then
+    v_m := v_n + (v_n % 2); v_arr := array(select generate_series(1, v_m));
+    if v_n % 2 = 1 then v_arr[v_m] := 0; end if;            -- 0 = exempt
+    for v_r in 1 .. v_m - 1 loop
+      for v_i in 1 .. v_m / 2 loop
+        v_a := v_arr[v_i]; v_b := v_arr[v_m + 1 - v_i];
+        if v_a = 0 or v_b = 0 then
+          insert into public.tournament_matches(tournament_id, round, slot, team_a, team_b, is_bye) values (v_id, v_r, v_i, greatest(v_a, v_b), null, true);
+        else insert into public.tournament_matches(tournament_id, round, slot, team_a, team_b) values (v_id, v_r, v_i, v_a, v_b); end if;
+      end loop;
+      v_arr := v_arr[1:1] || v_arr[v_m:v_m] || v_arr[2:v_m - 1];   -- rotation (méthode du cercle)
+    end loop;
+  else
+    v_p := 2; while v_p < v_n loop v_p := v_p * 2; end loop;
+    v_ord := array[1]; v_len := 1;
+    while v_len < v_p loop v_next := '{}'; foreach v_x in array v_ord loop v_next := v_next || v_x || (2 * v_len + 1 - v_x); end loop; v_ord := v_next; v_len := v_len * 2; end loop;
+    v_rounds := round(log(2, v_p))::int;
+    for v_r in 1 .. v_rounds loop
+      for v_i in 1 .. (v_p / (2 ^ v_r))::int loop
+        if v_r = 1 then
+          v_a := v_ord[2 * v_i - 1]; v_b := v_ord[2 * v_i]; if v_a > v_n then v_a := null; end if; if v_b > v_n then v_b := null; end if;
+          insert into public.tournament_matches(tournament_id, round, slot, team_a, team_b, is_bye) values (v_id, 1, v_i, v_a, v_b, (v_a is null or v_b is null));
+        else insert into public.tournament_matches(tournament_id, round, slot) values (v_id, v_r, v_i); end if;
+      end loop;
+    end loop;
+    update public.tournament_matches m set next_match = nx.id, next_side = case when m.slot % 2 = 1 then 'a' else 'b' end
+      from public.tournament_matches nx where m.tournament_id = v_id and nx.tournament_id = v_id and nx.round = m.round + 1 and nx.slot = (m.slot + 1) / 2;
+    for rec in select * from public.tournament_matches where tournament_id = v_id and round = 1 and is_bye loop    -- qualifiés d'office
+      v_x := coalesce(rec.team_a, rec.team_b);
+      update public.tournament_matches set winner = v_x where id = rec.id;
+      if rec.next_match is not null then
+        if rec.next_side = 'a' then update public.tournament_matches set team_a = v_x where id = rec.next_match;
+        else update public.tournament_matches set team_b = v_x where id = rec.next_match; end if;
+      end if;
+    end loop;
+  end if;
+  return v_id;
+end $$;
+
+create or replace function public.report_match(p_match uuid, p_score_a int, p_score_b int) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_m public.tournament_matches; v_t public.tournaments; v_w int; v_open int;
+begin
+  select * into v_m from public.tournament_matches where id = p_match;
+  if not found then raise exception 'Match introuvable.' using errcode = 'P0001'; end if;
+  select * into v_t from public.tournaments where id = v_m.tournament_id and host = public.ea_me();
+  if not found then raise exception 'Seul l’organisateur peut saisir les scores.' using errcode = '42501'; end if;
+  if v_m.is_bye or v_m.team_a is null or v_m.team_b is null then raise exception 'Match pas encore prêt.' using errcode = 'P0001'; end if;
+  if p_score_a < 0 or p_score_b < 0 or p_score_a > 100000 or p_score_b > 100000 then raise exception 'Score invalide.' using errcode = '22023'; end if;
+  if v_t.format = 'knockout' and p_score_a = p_score_b then raise exception 'Pas d’égalité en élimination directe.' using errcode = '22023'; end if;
+  if v_m.next_match is not null and exists (select 1 from public.tournament_matches where id = v_m.next_match and score_a is not null) then
+    raise exception 'Le match suivant est déjà joué.' using errcode = 'P0001'; end if;
+  v_w := case when p_score_a > p_score_b then v_m.team_a when p_score_b > p_score_a then v_m.team_b else null end;
+  update public.tournament_matches set score_a = p_score_a, score_b = p_score_b, winner = v_w where id = p_match;
+  if v_m.next_match is not null then
+    if v_m.next_side = 'a' then update public.tournament_matches set team_a = v_w where id = v_m.next_match;
+    else update public.tournament_matches set team_b = v_w where id = v_m.next_match; end if;
+  end if;
+  select count(*) into v_open from public.tournament_matches where tournament_id = v_t.id and not is_bye and (case when v_t.format = 'knockout' then winner is null else score_a is null end);
+  if v_open = 0 then update public.tournaments set status = 'done' where id = v_t.id; end if;
+end $$;
+
+create or replace function public.tournament_state(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if public.ea_me() is null then raise exception 'Connexion requise.' using errcode = '42501'; end if;
+  return (select jsonb_build_object('id', t.id, 'name', t.name, 'format', t.format, 'status', t.status, 'is_host', t.host = public.ea_me(),
+    'teams', (select coalesce(jsonb_agg(jsonb_build_object('seed', seed, 'name', name) order by seed), '[]'::jsonb) from public.tournament_teams where tournament_id = t.id),
+    'matches', (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'round', round, 'slot', slot, 'a', team_a, 'b', team_b, 'sa', score_a, 'sb', score_b, 'winner', winner, 'bye', is_bye) order by round, slot), '[]'::jsonb) from public.tournament_matches where tournament_id = t.id))
+    from public.tournaments t where t.id = p_id);
+end $$;
+
+create or replace function public.list_tournaments() returns table (id uuid, name text, format text, status text, created_at timestamptz, is_host boolean)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select t.id, t.name, t.format, t.status, t.created_at, t.host = public.ea_me() from public.tournaments t
+  where public.ea_me() is not null order by t.created_at desc limit 20;
+$$;
+
+revoke all on function public.create_duel(text, jsonb, int), public.join_duel(text), public.start_duel(text), public.advance_duel(text), public.submit_duel_answer(text, int, int), public.duel_state(text),
+  public.create_tournament(text, text, text[]), public.report_match(uuid, int, int), public.tournament_state(uuid), public.list_tournaments() from public;
+grant execute on function public.create_duel(text, jsonb, int), public.join_duel(text), public.start_duel(text), public.advance_duel(text), public.submit_duel_answer(text, int, int), public.duel_state(text),
+  public.create_tournament(text, text, text[]), public.report_match(uuid, int, int), public.tournament_state(uuid), public.list_tournaments() to authenticated;

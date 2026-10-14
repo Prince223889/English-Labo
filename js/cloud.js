@@ -72,5 +72,17 @@
     await ch.track(cfg.presence || {});
     return { key, send: payload => ch.send({ type: 'broadcast', event: 'msg', payload }), update: p => ch.track(p), leave: () => { try { c.removeChannel(ch); } catch (_) {} } };
   }
-  window.EACloud = { openRoom, messages, postMessage, deleteMessage, reportMessage, isEnabled, login, saveProgress, loadProgress, stats, fileUrl, announcements, leaderboard, client: loadClient };
+  // Duels / tournois : moteur de score autoritaire côté serveur (voir supabase/schema.sql)
+  async function rpc(name, args) { const c = await loadClient(); const r = await c.rpc(name, args || {}); if (r.error) throw new Error(r.error.message || 'Erreur serveur'); return r.data; }
+  const duel = {
+    create: (code, questions, qtimeMs) => rpc('create_duel', { p_code: code, p_questions: questions, p_qtime_ms: qtimeMs }),
+    join: code => rpc('join_duel', { p_code: code }), start: code => rpc('start_duel', { p_code: code }), advance: code => rpc('advance_duel', { p_code: code }),
+    answer: (code, idx, choice) => rpc('submit_duel_answer', { p_code: code, p_idx: idx, p_choice: choice }), state: code => rpc('duel_state', { p_code: code })
+  };
+  const tournament = {
+    create: (name, format, teams) => rpc('create_tournament', { p_name: name, p_format: format, p_teams: teams }),
+    report: (id, a, b) => rpc('report_match', { p_match: id, p_score_a: a, p_score_b: b }),
+    state: id => rpc('tournament_state', { p_id: id }), list: () => rpc('list_tournaments')
+  };
+  window.EACloud = { duel, tournament, openRoom, messages, postMessage, deleteMessage, reportMessage, isEnabled, login, saveProgress, loadProgress, stats, fileUrl, announcements, leaderboard, client: loadClient };
 })();

@@ -1,4 +1,4 @@
-/* Système de badges : 34 badges, 4 raretés, progression visible. */
+/* Système de badges : 40 badges, 4 raretés, progression visible. */
 (function () {
   const n = (v) => Number(v) || 0, len = (a) => (Array.isArray(a) ? a.length : 0), st = (p, k) => n((p.stats || {})[k]);
   const modes = p => new Set((p.simHistory || []).map(h => h.m)).size;
@@ -39,19 +39,47 @@
     ['game15', '🕹️', 'Accro à l’Arcade', 'Terminer 15 mini-jeux', 2, p => [st(p, 'games'), 15]],
     ['gamePerfect', '🧩', 'Parfait !', 'Faire un score parfait dans un mini-jeu', 3, p => [st(p, 'gamePerfect'), 1]],
     ['mic1', '🎧', 'Micro testé', 'Tester le micro anti-bruit', 1, p => [st(p, 'mic'), 1]],
-    ['mascot', '✨', 'Meilleur ami de Kiki', 'Personnaliser Kiki', 1, p => [st(p, 'mascot'), 1]]
+    ['mascot', '✨', 'Meilleur ami de Kiki', 'Personnaliser Kiki', 1, p => [st(p, 'mascot'), 1]],
+    ['world1', '🌍', 'Explorateur', 'Terminer une partie du Monde', 1, p => [st(p, 'worlds'), 1]],
+    ['case3', '🕵️', 'Détective', 'Résoudre 3 enquêtes', 2, p => [st(p, 'cases'), 3]],
+    ['team1', '🤝', 'Esprit d’équipe', 'Terminer une partie en équipe (coop, alliance ou rivalité)', 2, p => [st(p, 'teamGames'), 1]],
+    ['boss1', '👹', 'Tueur de boss', 'Vaincre le Boss final', 3, p => [st(p, 'bossWins'), 1]],
+    ['tour1', '🦜', 'Visiteur curieux', 'Faire la visite guidée avec Kiki', 1, p => [st(p, 'tour'), 1]],
+    ['tourney1', '🏟️', 'Champion de tournoi', 'Gagner un tournoi complet', 4, p => [st(p, 'tournaments'), 1]]
   ].map(([id, emoji, title, desc, tier, f]) => ({ id, emoji, title, desc, tier, f }));
   const TIERS = ['', 'Bronze', 'Argent', 'Or', 'Diamant'], COL = ['', '#cd7f32', '#b8c4d6', '#ffd166', '#7cf0ff'];
+
+  // ---------- Capacités spéciales : chaque badge débloqué donne un pouvoir rechargé chaque jour ----------
+  const KINDS = {
+    fifty: ['✂️', '50/50', 'Retire 2 mauvaises réponses.'], skip: ['⏭️', 'Passe-droit', 'Passe la question sans pénalité.'], time: ['⏳', 'Temps bonus', '+10 secondes sur la question.'],
+    shield: ['🛡️', 'Bouclier', 'Ta prochaine erreur ne coûte rien.'], hint: ['💡', 'Indice', 'Révèle la première lettre et la longueur de la réponse.'], second: ['🔁', 'Seconde chance', 'Tu peux répondre une deuxième fois.'],
+    xp2: ['✨', 'XP doublés', 'Cette question rapporte le double de XP.'], freeze: ['❄️', 'Gel du temps', 'Arrête le chronomètre sur cette question.'], revive: ['❤️', 'Soin', 'Récupère une vie (mode Survie / Monde).'], swap: ['🔀', 'Autre question', 'Remplace la question par une nouvelle.']
+  };
+  const KORDER = Object.keys(KINDS);
+  C.forEach((b, i) => { b.power = KORDER[i % KORDER.length]; b.cap = b.tier >= 3 ? 2 : 1; });
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  function powers(p) {
+    p.powers = p.powers && typeof p.powers === 'object' ? p.powers : {}; p.powers.c = p.powers.c || {};
+    const got = new Set(p.achievements || []), t = today();
+    if (p.powers.day !== t) { p.powers.day = t; C.forEach(b => { if (got.has(b.id)) p.powers.c[b.id] = Math.max(p.powers.c[b.id] || 0, b.cap); }); }
+    C.forEach(b => { if (got.has(b.id) && p.powers.c[b.id] == null) p.powers.c[b.id] = b.cap; });
+    return p.powers;
+  }
+  /** Liste des pouvoirs disponibles : [{id (badge), kind, icon, name, desc, charges}] */
+  function usable(p) { const pw = powers(p); return C.filter(b => (pw.c[b.id] || 0) > 0).map(b => ({ id: b.id, badge: b.title, emoji: b.emoji, kind: b.power, icon: KINDS[b.power][0], name: KINDS[b.power][1], desc: KINDS[b.power][2], charges: pw.c[b.id] })); }
+  function use(p, id) { const pw = powers(p); if ((pw.c[id] || 0) <= 0) return false; pw.c[id]--; return true; }
+  function grant(p, n) { const pw = powers(p), got = C.filter(b => (p.achievements || []).includes(b.id)); if (!got.length) return false; const b = got[Math.floor(Math.random() * got.length)]; pw.c[b.id] = (pw.c[b.id] || 0) + (n || 1); return b; }
 
   function check(p) {
     p.achievements = p.achievements || []; const fresh = [];
     C.forEach(b => { if (!p.achievements.includes(b.id)) { let ok = false; try { const [c, t] = b.f(p); ok = c >= t; } catch (_) {} if (ok) { p.achievements.push(b.id); fresh.push(b); } } });
+    if (fresh.length) powers(p);
     return fresh;
   }
   function wall(p) {
     const got = new Set(p.achievements || []);
     return `<div class="badge-wall">${C.map(b => { let c = 0, t = 1; try { [c, t] = b.f(p); } catch (_) {} const on = got.has(b.id), pct = Math.min(100, Math.round(c / t * 100));
-      return `<div class="badge ${on ? 'on' : ''}" style="--bc:${COL[b.tier]}" title="${b.desc}"><span class="badge-emoji">${b.emoji}</span><strong>${b.title}</strong><small>${b.desc}</small><em>${TIERS[b.tier]}</em>${on ? '' : `<div class="progress-line"><span style="width:${pct}%"></span></div><small>${Math.min(c, t)}/${t}</small>`}</div>`; }).join('')}</div>`;
+      return `<div class="badge ${on ? 'on' : ''}" style="--bc:${COL[b.tier]}" title="${b.desc}"><span class="badge-emoji">${b.emoji}</span><strong>${b.title}</strong><small>${b.desc}</small><em>${TIERS[b.tier]}</em><span class="badge-power" title="${KINDS[b.power][2]}">${KINDS[b.power][0]} ${KINDS[b.power][1]}${on ? ' · ' + ((p.powers && p.powers.c && p.powers.c[b.id]) || 0) + '/' + b.cap : ' 🔒'}</span>${on ? '' : `<div class="progress-line"><span style="width:${pct}%"></span></div><small>${Math.min(c, t)}/${t}</small>`}</div>`; }).join('')}</div>`;
   }
-  window.EABadges = { CATALOG: C, check, wall, total: C.length };
+  window.EABadges = { CATALOG: C, KINDS, check, wall, total: C.length, powers, usable, use, grant };
 })();

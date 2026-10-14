@@ -4,6 +4,16 @@
 
 English Arena part du ZIP de cours transmis : le livre *English for Terminale — Cours intensif 56 jours* et les huit supports hebdomadaires sont conservés. Le site ajoute des cartes de vocabulaire, des quiz corrigés, des simulations conversationnelles sans IA obligatoire, un suivi local, des missions et des ressources externes gratuites.
 
+## Nouveautés (tout est intégré dans l'app, pas de « version 2 »)
+- **Quiz adaptatif** : 12 000+ questions A1→C1 (`data/quiz/`), jamais deux fois la même avant la fin du tour, niveau auto + test de niveau, modes Normal / Chrono intense / Survie / Marathon / Révision des erreurs, réponses par choix, saisie ou écoute.
+- **Pouvoirs des badges** : 40 badges, chacun donne un pouvoir rechargé chaque jour (50/50, bouclier, indice, seconde chance, XP doublés…), utilisables dans les quiz et dans le Monde.
+- **Kiki** : marche jusqu'aux boutons, se déplace/glisse-dépose, suit le curseur, accessoires, **visite guidée** et mode **« explique-moi chaque bouton »**.
+- **Voix** : lecture complète (plus de coupure), vitesse/voix réglables, micro avec texte en direct ; **Speaking Lab** : 48 simulations, le partenaire parle et réagit, tu réponds au micro ou au clavier.
+- **Monde** : Solo (8 lieux, énigmes), Coopératif, Alliance, Rivalité, Boss final, enquêtes, pièges de francophones, défis oraux, **Tournoi complet** (toutes les manches générées automatiquement).
+- **Duels** : score calculé par le serveur (voir `docs/CLOUD_SETUP.md`).
+- Les profils et progrès déjà existants sont conservés (migration automatique, ajouts uniquement).
+- Tests : `node tests/smoke.test.cjs`, `node tools/validate-quiz-bank.cjs`, `node tools/validate-world-data.cjs`.
+
 ## Ce que contient cette première version
 
 - **56 leçons / 8 semaines** : objectifs, exemples, mots-clés, validation de progression et liens vers les PDF d'origine.

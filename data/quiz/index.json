@@ -1,0 +1,23 @@
+{
+ "total": 12273,
+ "levels": {
+  "A1": 2716,
+  "A2": 2203,
+  "B1": 2971,
+  "B2": 2284,
+  "C1": 2099
+ },
+ "categories": {
+  "Numbers & Time": 482,
+  "Grammar": 6390,
+  "Vocabulary": 2050,
+  "Prepositions": 161,
+  "Phrasal verbs": 187,
+  "Spelling": 100,
+  "Communication": 55,
+  "Tenses": 2737,
+  "Word forms": 47,
+  "Writing": 19,
+  "Idioms": 45
+ }
+}

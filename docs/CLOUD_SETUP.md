@@ -52,3 +52,15 @@ L'URL et la clé publique sont conçues pour être utilisées dans le navigateur
 - Les fonctions SQL vérifient les codes et limitent l'accès aux progrès du profil associé à la session; garde le code confidentiel.
 - Pour des besoins institutionnels, ajoute un rôle administrateur géré côté serveur, une procédure de révocation automatisée et une politique de confidentialité avant une diffusion plus large.
 - Le site fonctionne en local sans Supabase. Lorsque le mode cloud est activé, la connexion est utilisée pour l'authentification et les synchronisations groupées; les leçons/quiz restent locaux.
+
+## Mise à jour : duels protégés + tournois complets (à faire une seule fois)
+
+Le fichier `supabase/schema.sql` a été **complété** (ajouts uniquement : aucun élève, code, progression ni message existant n'est touché). Pour activer les nouveautés :
+
+1. Ouvre **SQL Editor** dans Supabase, colle de nouveau tout `supabase/schema.sql` et exécute-le (il est conçu pour pouvoir être relancé sans risque).
+2. C'est tout. Les duels de classe utilisent désormais des fonctions serveur (`create_duel`, `submit_duel_answer`, `duel_state`…) : le **chrono et les points sont calculés par la base**, la bonne réponse n'est révélée à un joueur qu'après sa réponse (ou la fin du temps), et les tables de duel sont fermées aux navigateurs.
+3. Les tournois (`create_tournament`) génèrent **toutes les manches** (toutes rondes ou élimination directe avec exempts) ; l'organisateur saisit les scores (`report_match`) et le tableau se remplit tout seul.
+
+Test automatique de ces fonctions sur une base PostgreSQL jetable : `bash supabase/tests/run.sh` (nécessite PostgreSQL 16 en local).
+
+Limite à connaître : l'élève qui **crée** le duel choisit les questions (il connaît donc les réponses de ce duel, comme un professeur). Les autres joueurs ne peuvent ni voir les réponses ni modifier leur score.
