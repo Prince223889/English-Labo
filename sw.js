@@ -33,6 +33,6 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(req).then(response => { const copy=response.clone(); caches.open(CACHE_NAME).then(c=>c.put(new URL('./index.html',BASE_URL).href,copy)); return response; }).catch(async () => (await caches.match(new URL('./index.html',BASE_URL).href)) || caches.match(new URL('./',BASE_URL).href)));
     return;
   }
-  event.respondWith(caches.match(req).then(cached => cached || fetch(req).then(response => { if(response.ok) caches.open(CACHE_NAME).then(cache=>cache.put(req,response.clone())); return response; })));
+  event.respondWith(caches.match(req).then(cached => cached || fetch(req).then(response => { if(response.ok){ const copy=response.clone(); caches.open(CACHE_NAME).then(cache=>cache.put(req,copy)); } return response; })));
 });
 
